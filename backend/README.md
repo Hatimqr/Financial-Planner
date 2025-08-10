@@ -1,134 +1,112 @@
-# Financial Planning Backend
+# Financial Planning Backend - Database Setup
 
-This is the backend API for the local-first investment planner and portfolio analytics application.
-
-## Features Implemented
-
-### EP0-4: Base Configuration System (`app/config.py`)
-- Pydantic-based configuration with YAML file support
-- Environment variable overrides
-- Local-first principles (adapters disabled by default)
-- Database, API, logging, and adapter configuration sections
-
-### EP0-5: Logging and Error Handling
-
-- **Structured Logging** (`app/logging.py`):
-  - JSON-structured logs for file output
-  - Human-readable console output
-  - Configurable log levels via configuration
-  - Request ID tracing
-  - Helper functions for request and error logging
-
-- **Error Handling** (`app/errors.py`):
-  - Standardized error envelope format: `{"ok": false, "error": {...}}`
-  - Custom exception classes for common scenarios
-  - FastAPI exception handlers
-  - Request ID tracking for debugging
-
-- **Main Application** (`main.py`):
-  - FastAPI app with configuration-driven initialization
-  - Exception handler registration
-  - Request logging middleware
-  - CORS configuration
-  - Health check endpoints
+This document covers the database setup and management for the financial planning application.
 
 ## Quick Start
 
-1. Install dependencies:
+1. **Set up Python environment:**
    ```bash
-   pip install -r requirements.txt
+   python -m venv .venv && source .venv/bin/activate
    ```
 
-2. Run the development server:
+2. **Install dependencies:**
    ```bash
-   python main.py
+   pip install sqlalchemy alembic pytest
    ```
 
-3. Visit http://127.0.0.1:8000 for the API
-   - `/`: Basic status endpoint
-   - `/health`: Health check
-   - `/api/status`: API feature status
-   - `/test-error`: Test error handling
-   - `/docs`: Auto-generated API documentation
+3. **Set database URL (optional):**
+   ```bash
+   export DB_URL=sqlite:///./data/app.db
+   ```
+
+4. **Initialize and seed database:**
+   ```bash
+   make db-init && make db-seed
+   ```
+
+5. **Run tests:**
+   ```bash
+   make test
+   ```
+
+## Database Schema
+
+The application uses SQLite with a double-entry bookkeeping schema:
+
+### Core Tables
+- **accounts**: Chart of accounts (ASSET, LIABILITY, INCOME, EXPENSE, EQUITY)
+- **instruments**: Tradeable securities (EQUITY, ETF, BOND, CASH, CRYPTO)  
+- **prices**: Daily closing prices with composite PK (instrument_id, date)
+- **transactions**: Double-entry transactions with posting workflow
+- **transaction_lines**: Individual debit/credit entries
+- **lots**: Position tracking for cost basis (FIFO/Average cost)
+
+### Key Constraints
+- **Balance trigger**: Prevents posting unbalanced transactions
+- **Lot over-close trigger**: Prevents closing more shares than opened
+- **Foreign key constraints**: Maintains referential integrity
+- **Check constraints**: Enforces valid enum values
+
+## Database Commands
+
+```bash
+# Initialize database with migrations
+make db-init
+
+# Seed with sample data
+make db-seed
+
+# Reset database (drop, init, seed)
+make db-reset
+
+# Run all tests
+make test
+```
+
+## Seeded Data
+
+The seed script creates:
+- **5 Chart of Accounts**: Cash, Brokerage, Dividends, Fees, Opening Balance
+- **2 Sample Instruments**: AAPL (Equity), SPY (ETF)
+- **Current prices**: Today's sample closing prices
+- **Opening balance transaction**: $1000 balanced entry
 
 ## Testing
 
-Run the test suite:
+Tests cover:
+- **Schema validation**: Tables, indexes, triggers exist
+- **Balance trigger**: Prevents/allows posting based on balance
+- **Lot constraints**: Prevents over-closing positions
+- **Primary key constraints**: Prevents duplicate prices
+- **Foreign key cascades**: Proper deletion behavior
+
+Run tests with:
 ```bash
-pytest
+cd backend && python -m pytest -v
 ```
 
 ## Configuration
 
-Configuration is managed through `config.yaml` and environment variables:
+Database URL can be set via:
+- Environment variable: `DB_URL=sqlite:///./data/app.db`
+- Alembic config: `backend/alembic.ini`
+- Default: `sqlite:///./data/app.db`
 
-- **YAML file**: `config.yaml` (created automatically with defaults)
-- **Environment variables**: Use `APP__SECTION__KEY` format (e.g., `APP__API__PORT=8080`)
-- **Local-first**: All adapters are disabled by default
+## Local-First Architecture
 
-### Configuration Sections:
-- `database`: SQLite database settings
-- `api`: Server host, port, debug settings
-- `logging`: Log levels, file paths, rotation
-- `app`: Timezone, currency, backup settings
-- `adapters`: Price, FX, and broker import adapters (disabled by default)
-
-## Logging
-
-Logs are written to:
-- Console: Human-readable format
-- File: Configured path (default: `data/logs/app.log`) in structured JSON format
-
-Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL (configurable)
-
-## Error Format
-
-All API errors follow this envelope format:
-
-```json
-{
-  "ok": false,
-  "error": {
-    "code": "ERROR_CODE",
-    "message": "Human readable message",
-    "details": {
-      "additional": "context"
-    }
-  },
-  "request_id": "uuid-for-tracing"
-}
-```
-
-## Directory Structure
-
-```
-backend/
-├── app/
-│   ├── __init__.py
-│   ├── config.py       # Configuration management
-│   ├── logging.py      # Structured logging system
-│   ├── errors.py       # Error handling and custom exceptions
-│   ├── models/         # Future: Database models
-│   ├── services/       # Future: Business logic services
-│   ├── repositories/   # Future: Data access layer
-│   └── routers/        # Future: API route handlers
-├── adapters/           # Future: External data adapters
-├── tests/
-│   ├── __init__.py
-│   ├── test_logging.py
-│   └── test_errors.py
-├── data/               # Data directory (logs, database)
-├── main.py            # FastAPI application
-├── config.yaml        # Configuration file
-├── requirements.txt   # Python dependencies
-├── pytest.ini        # Test configuration
-└── README.md         # This file
-```
+- All data stored in local SQLite file
+- No network dependencies
+- Foreign keys enabled for data integrity
+- Deterministic migrations and seeds
+- Full offline operation
 
 ## Next Steps
 
-Future epic implementations will add:
-- Database models and migrations (EP1)
-- Core accounting engine (EP2)
-- API endpoints for CRUD operations (EP9)
-- Frontend integration points
+After Epic 1 completion, the database supports:
+- Double-entry transaction recording
+- Multi-instrument price tracking
+- Position lot management
+- Chart of accounts structure
+- Referential integrity enforcement
+
+Ready for Epic 2 (Core Accounting Engine) development.
