@@ -17,7 +17,7 @@ Legend: [ ] todo, [x] done. IDs: EPx‑y.
 
 - EP0‑1 [ ] Repo scaffold (backend `FastAPI`, frontend `React+Vite`, `make` targets)
 - EP0‑2 [ ] Dev env scripts (`poetry`/`pip`, `npm`, pre‑commit)
-- EP0‑3 [x] CI local runner (lint, type check, tests)
+- EP0‑3 [ ] CI local runner (lint, type check, tests)
 - EP0‑4 [ ] Base config (`config.yaml`, env parsing)
 - EP0‑5 [ ] Logging + structured error envelope
 

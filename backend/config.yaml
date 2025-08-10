@@ -1,0 +1,46 @@
+# Financial Planning Application Configuration
+
+# Database settings
+database:
+  path: "./data/app.db"
+  echo: false  # Set to true to log SQL queries
+
+# API server settings  
+api:
+  host: "127.0.0.1"
+  port: 8000
+  debug: true
+  reload: true
+
+# Logging settings
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "./data/logs/app.log"
+  max_file_size: "10MB"
+  backup_count: 5
+
+# Application settings
+app:
+  timezone: "UTC"
+  base_currency: "USD"
+  backup_on_startup: true
+  backup_retention_days: 30
+
+# Adapter settings (disabled by default for local-first operation)
+adapters:
+  price_adapter:
+    enabled: false
+    provider: null
+    api_key: null
+    cache_ttl: 3600
+  
+  fx_adapter:
+    enabled: false
+    provider: null
+    api_key: null
+    cache_ttl: 3600
+  
+  broker_import:
+    enabled: false
+    providers: []
