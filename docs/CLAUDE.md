@@ -33,6 +33,11 @@ cd frontend
 npm install
 ```
 
+### API Documentation
+- **Full API Docs**: [api-endpoints.md](./api-endpoints.md)
+- **Auto-generated Docs**: http://localhost:8000/docs (when server running)
+- **30+ Endpoints**: Accounts, Instruments, Transactions, Corporate Actions, Portfolio
+
 ### Development
 ```bash
 # Start backend server

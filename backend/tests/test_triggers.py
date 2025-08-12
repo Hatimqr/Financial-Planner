@@ -25,71 +25,11 @@ class TestTriggers:
         engine = create_engine(f'sqlite:///{temp_file.name}', echo=False)
         event.listen(engine, "connect", enable_foreign_keys)
         
-        # Create all tables including triggers
-        from alembic import command
-        from alembic.config import Config
+        # Create all tables using SQLAlchemy models
+        Base.metadata.create_all(engine)
         
-        # We'll create tables manually since we need triggers
+        # Add database triggers manually (these are SQLite specific)
         with engine.connect() as conn:
-            # Enable foreign keys
-            conn.execute(text("PRAGMA foreign_keys = ON;"))
-            
-            # Create tables with exact schema including triggers
-            conn.execute(text("""
-                CREATE TABLE accounts (
-                  id INTEGER PRIMARY KEY,
-                  name TEXT NOT NULL,
-                  type TEXT NOT NULL CHECK (type IN ('ASSET','LIABILITY','INCOME','EXPENSE','EQUITY')),
-                  currency TEXT NOT NULL
-                );
-            """))
-            
-            conn.execute(text("""
-                CREATE TABLE instruments (
-                  id INTEGER PRIMARY KEY,
-                  symbol TEXT NOT NULL UNIQUE,
-                  name TEXT NOT NULL,
-                  type TEXT NOT NULL CHECK (type IN ('EQUITY','ETF','BOND','CASH','CRYPTO')),
-                  currency TEXT NOT NULL
-                );
-            """))
-            
-            conn.execute(text("""
-                CREATE TABLE transactions (
-                  id INTEGER PRIMARY KEY,
-                  date TEXT NOT NULL,
-                  type TEXT NOT NULL CHECK (type IN ('TRADE','TRANSFER','DIVIDEND','FEE','TAX','FX','ADJUST')),
-                  memo TEXT,
-                  posted INTEGER NOT NULL DEFAULT 0 CHECK (posted IN (0,1)),
-                  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-                );
-            """))
-            
-            conn.execute(text("""
-                CREATE TABLE transaction_lines (
-                  id INTEGER PRIMARY KEY,
-                  transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
-                  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
-                  instrument_id INTEGER REFERENCES instruments(id) ON DELETE RESTRICT,
-                  quantity REAL,
-                  amount REAL NOT NULL,
-                  dr_cr TEXT NOT NULL CHECK (dr_cr IN ('DR','CR'))
-                );
-            """))
-            
-            conn.execute(text("""
-                CREATE TABLE lots (
-                  id INTEGER PRIMARY KEY,
-                  instrument_id INTEGER NOT NULL REFERENCES instruments(id),
-                  account_id INTEGER NOT NULL REFERENCES accounts(id),
-                  open_date TEXT NOT NULL,
-                  qty_opened REAL NOT NULL,
-                  qty_closed REAL NOT NULL DEFAULT 0 CHECK (qty_closed >= 0),
-                  cost_total REAL NOT NULL,
-                  closed INTEGER NOT NULL DEFAULT 0 CHECK (closed IN (0,1))
-                );
-            """))
-            
             # Create the balance trigger
             conn.execute(text("""
                 CREATE TRIGGER trg_tx_post_balance

@@ -1,6 +1,6 @@
-# Financial Planning Backend - Database Setup
+# Financial Planning Backend - Development Setup
 
-This document covers the database setup and management for the financial planning application.
+Simple development setup for the financial planning application.
 
 ## Quick Start
 
@@ -11,22 +11,18 @@ This document covers the database setup and management for the financial plannin
 
 2. **Install dependencies:**
    ```bash
-   pip install sqlalchemy alembic pytest
+   pip install -r requirements.txt
    ```
 
-3. **Set database URL (optional):**
+3. **Start the application:**
    ```bash
-   export DB_URL=sqlite:///./data/app.db
+   python main.py
    ```
+   Database tables are automatically created on first run.
 
-4. **Initialize and seed database:**
+4. **Run tests:**
    ```bash
-   make db-init && make db-seed
-   ```
-
-5. **Run tests:**
-   ```bash
-   make test
+   pytest
    ```
 
 ## Database Schema

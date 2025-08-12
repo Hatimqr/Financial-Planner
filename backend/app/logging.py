@@ -9,7 +9,7 @@ import json
 import logging
 import logging.config
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -20,7 +20,7 @@ class StructuredFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as structured JSON."""
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -51,7 +51,7 @@ class SimpleConsoleFormatter(logging.Formatter):
     
     def format(self, record: logging.LogRecord) -> str:
         """Format log record for console output."""
-        timestamp = datetime.utcnow().strftime("%H:%M:%S")
+        timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
         level = record.levelname.ljust(8)
         
         # Add request ID if present

@@ -2,6 +2,7 @@
 import sys
 import os
 from datetime import date
+import argparse
 
 # Add the backend directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -11,7 +12,7 @@ from app.db import engine, enable_foreign_keys
 from app.models import Account, Instrument, Price, Transaction, TransactionLine
 
 
-def seed_accounts(session):
+def seed_accounts(session, force=False):
     """Seed minimal chart of accounts."""
     accounts_data = [
         {"name": "Assets:Cash", "type": "ASSET", "currency": "USD"},
@@ -29,7 +30,10 @@ def seed_accounts(session):
             session.add(account)
             print(f"Added account: {account_data['name']}")
         else:
-            print(f"Account already exists: {account_data['name']}")
+            if force:
+                print(f"Account already exists (force mode): {account_data['name']}")
+            else:
+                print(f"Account already exists: {account_data['name']}")
 
 
 def seed_instruments(session):

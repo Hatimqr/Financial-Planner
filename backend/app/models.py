@@ -41,6 +41,7 @@ class Instrument(Base):
     prices = relationship("Price", back_populates="instrument", cascade="all, delete-orphan")
     transaction_lines = relationship("TransactionLine", back_populates="instrument")
     lots = relationship("Lot", back_populates="instrument")
+    corporate_actions = relationship("CorporateAction", back_populates="instrument")
 
     # Constraints
     __table_args__ = (
@@ -145,4 +146,36 @@ class Lot(Base):
         CheckConstraint("qty_closed >= 0", name='ck_lot_qty_closed'),
         CheckConstraint("closed IN (0,1)", name='ck_lot_closed'),
         Index('idx_lots_open', 'open_date'),
+    )
+
+
+class CorporateAction(Base):
+    """Corporate action model for tracking splits, dividends, and symbol changes."""
+    __tablename__ = 'corporate_actions'
+
+    id = Column(Integer, primary_key=True)
+    instrument_id = Column(Integer, ForeignKey('instruments.id', ondelete='RESTRICT'), nullable=False)
+    type = Column(Text, nullable=False)
+    date = Column(Text, nullable=False)
+    ratio = Column(REAL)  # For splits (e.g., 2.0 for 2:1 split)
+    cash_per_share = Column(REAL)  # For dividends (cash amount per share)
+    notes = Column(Text)
+    processed = Column(Integer, nullable=False, default=0)
+    created_at = Column(Text, nullable=False, server_default=func.strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+
+    # Relationships
+    instrument = relationship("Instrument", back_populates="corporate_actions")
+
+    # Constraints and Indexes
+    __table_args__ = (
+        CheckConstraint(
+            "type IN ('SPLIT','CASH_DIVIDEND','STOCK_DIVIDEND','SYMBOL_CHANGE','MERGER','SPINOFF')",
+            name='ck_corporate_action_type'
+        ),
+        CheckConstraint(
+            "processed IN (0,1)",
+            name='ck_corporate_action_processed'
+        ),
+        Index('idx_ca_instrument', 'instrument_id'),
+        Index('idx_ca_date', 'date'),
     )

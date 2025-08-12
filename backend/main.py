@@ -19,12 +19,7 @@ from app.logging import setup_logging, get_logger, log_request
 
 
 # Load configuration
-try:
-    config = load_config()
-except FileNotFoundError:
-    # If no config file exists, use defaults
-    from app.config import Config
-    config = Config()
+config = load_config()
 
 # Initialize logging with configuration
 setup_logging(
@@ -44,16 +39,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     logger.info("Financial Planning API starting up")
     
-    # TODO: Initialize database connection
-    # TODO: Run any startup tasks
+    # Initialize database tables
+    try:
+        # Import models to register them with SQLAlchemy
+        from app import models
+        from app.db import create_tables
+        create_tables()
+        logger.info("Database tables initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
     
     yield
     
     # Shutdown
     logger.info("Financial Planning API shutting down")
-    
-    # TODO: Clean up database connections
-    # TODO: Run any cleanup tasks
 
 
 # Create FastAPI application
@@ -67,7 +66,12 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # React dev server
+    allow_origins=[
+        "http://localhost:3000", 
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",  # Vite dev server
+        "http://127.0.0.1:5173"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -133,7 +137,21 @@ async def health_check():
     }
 
 
-# API routes will be added here
+# Include API routers
+from app.routers import (
+    accounts,
+    instruments, 
+    transactions,
+    corporate_actions,
+    portfolio
+)
+
+app.include_router(accounts.router)
+app.include_router(instruments.router)
+app.include_router(transactions.router)
+app.include_router(corporate_actions.router)
+app.include_router(portfolio.router)
+
 @app.get("/api/status")
 async def api_status():
     """API status endpoint."""
@@ -160,7 +178,7 @@ if __name__ == "__main__":
     import uvicorn
     
     logger.info("Starting Financial Planning API server")
-    logger.info(f"Configuration loaded: Local-first mode = {config.is_local_first_mode()}")
+    logger.info("Configuration loaded with development defaults")
     
     uvicorn.run(
         "main:app",

@@ -223,7 +223,7 @@ async def financial_planning_exception_handler(
     
     return JSONResponse(
         status_code=exc.status_code,
-        content=error_response.dict(),
+        content=error_response.model_dump(),
     )
 
 
@@ -272,7 +272,7 @@ async def http_exception_handler(
     
     return JSONResponse(
         status_code=exc.status_code,
-        content=error_response.dict(),
+        content=error_response.model_dump(),
     )
 
 
@@ -310,7 +310,7 @@ async def validation_exception_handler(
     
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content=error_response.dict(),
+        content=error_response.model_dump(),
     )
 
 
@@ -341,7 +341,7 @@ async def general_exception_handler(
     
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content=error_response.dict(),
+        content=error_response.model_dump(),
     )
 
 

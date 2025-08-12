@@ -1,13 +1,12 @@
 """Database engine and session management."""
-import os
 from sqlalchemy import create_engine, event
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 
 def get_database_url() -> str:
-    """Get database URL from environment or use default."""
-    return os.getenv('DB_URL', 'sqlite:///./data/app.db')
+    """Get database URL for development."""
+    return 'sqlite:///./data/app.db'
 
 
 def enable_foreign_keys(dbapi_connection, connection_record):
@@ -20,13 +19,12 @@ def enable_foreign_keys(dbapi_connection, connection_record):
 # Create engine with foreign key support
 engine = create_engine(
     get_database_url(),
-    connect_args={"check_same_thread": False} if "sqlite" in get_database_url() else {},
-    echo=os.getenv('DB_ECHO', 'false').lower() == 'true'
+    connect_args={"check_same_thread": False},
+    echo=False  # Set to True for SQL debugging if needed
 )
 
 # Enable foreign keys for SQLite
-if "sqlite" in get_database_url():
-    event.listen(engine, "connect", enable_foreign_keys)
+event.listen(engine, "connect", enable_foreign_keys)
 
 # Create sessionmaker
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

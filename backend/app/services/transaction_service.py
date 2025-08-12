@@ -11,7 +11,7 @@ This service implements complete double-entry accounting functionality with:
 
 from typing import List, Optional, Dict, Any, Tuple
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
@@ -102,7 +102,7 @@ class TransactionService(BaseService[Transaction]):
             'date': date,
             'memo': memo,
             'posted': 1 if auto_post else 0,
-            'created_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+            'created_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
         }
         
         # Prepare and validate transaction lines
@@ -249,12 +249,16 @@ class TransactionService(BaseService[Transaction]):
         lines = []
         
         if quantity > 0:  # BUY transaction
-            # DR Securities Account (increase securities)
+            # DR Securities Account (increase securities) - include fees in cost basis
+            securities_amount = trade_amount
+            if fees:
+                securities_amount += fees
+                
             lines.append({
                 'account_id': account_id,
                 'instrument_id': instrument_id,
                 'quantity': float(quantity),
-                'amount': float(trade_amount),
+                'amount': float(securities_amount),
                 'dr_cr': 'DR'
             })
             
@@ -269,13 +273,7 @@ class TransactionService(BaseService[Transaction]):
                 'dr_cr': 'CR'
             })
             
-            # DR Fee Account if applicable
-            if fees and fees > 0:
-                lines.append({
-                    'account_id': fee_account_id,
-                    'amount': float(fees),
-                    'dr_cr': 'DR'
-                })
+            # No separate fee account entry for buys - fees are included in cost basis
         
         else:  # SELL transaction
             # CR Securities Account (decrease securities)

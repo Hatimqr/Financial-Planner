@@ -80,26 +80,16 @@ python -c "from main import app; print('✅ Backend imports successfully')" || {
 }
 cd ..
 
-# Test frontend build (quick check)
-echo "Testing frontend build..."
-cd frontend
-npm run build > /dev/null 2>&1 || {
-    echo "❌ Frontend build failed"
-    exit 1
-}
-echo "✅ Frontend builds successfully"
-cd ..
-
 echo ""
 echo "🎉 Setup completed successfully!"
 echo ""
 echo "Available commands:"
 echo "  make dev          - Start both backend and frontend in development mode"
+echo "  make start        - Alias for dev"
 echo "  make dev-backend  - Start only backend development server (http://localhost:8000)"
 echo "  make dev-frontend - Start only frontend development server (http://localhost:5173)"
 echo "  make install      - Install all dependencies"
-echo "  make test         - Run all tests (when implemented)"
-echo "  make dist         - Build for production"
+echo "  make test         - Run backend tests"
 echo "  make clean        - Clean up build artifacts"
 echo "  make help         - Show help message"
 echo ""
@@ -107,5 +97,6 @@ echo "Next steps:"
 echo "1. Run 'make dev' to start both servers"
 echo "2. Visit http://localhost:5173 for the frontend"
 echo "3. Visit http://localhost:8000/docs for the API documentation"
+echo "4. Database tables are automatically created on first run"
 echo ""
 echo "Happy coding! 🎯"

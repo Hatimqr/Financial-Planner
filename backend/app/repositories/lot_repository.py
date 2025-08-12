@@ -3,7 +3,7 @@ from typing import List, Optional
 from decimal import Decimal
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
-from app.models import Lot, TransactionLine, Transaction
+from app.models import Lot, TransactionLine, Transaction, Instrument, Account
 from app.db import get_db
 
 
@@ -80,13 +80,20 @@ class LotRepository:
         query = self.db.query(
             Lot.instrument_id,
             Lot.account_id,
+            Instrument.symbol.label('instrument_symbol'),
+            Instrument.name.label('instrument_name'),
+            Account.name.label('account_name'),
             func.sum(Lot.qty_opened - Lot.qty_closed).label('total_quantity'),
             func.sum(Lot.cost_total * (Lot.qty_opened - Lot.qty_closed) / Lot.qty_opened).label('total_cost'),
             func.count(Lot.id).label('lot_count')
+        ).join(
+            Instrument, Lot.instrument_id == Instrument.id
+        ).join(
+            Account, Lot.account_id == Account.id
         ).filter(
             Lot.closed == 0,
             Lot.qty_closed < Lot.qty_opened
-        ).group_by(Lot.instrument_id, Lot.account_id)
+        ).group_by(Lot.instrument_id, Lot.account_id, Instrument.symbol, Instrument.name, Account.name)
         
         if account_id is not None:
             query = query.filter(Lot.account_id == account_id)
@@ -100,6 +107,9 @@ class LotRepository:
             {
                 'instrument_id': row.instrument_id,
                 'account_id': row.account_id,
+                'instrument_symbol': row.instrument_symbol,
+                'instrument_name': row.instrument_name,
+                'account_name': row.account_name,
                 'total_quantity': Decimal(str(row.total_quantity)) if row.total_quantity else Decimal('0'),
                 'total_cost': Decimal(str(row.total_cost)) if row.total_cost else Decimal('0'),
                 'lot_count': row.lot_count,

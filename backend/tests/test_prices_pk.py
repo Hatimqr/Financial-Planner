@@ -90,17 +90,25 @@ class TestPricesPrimaryKey:
         session.commit()
         
         # Try to add duplicate (instrument_id, date) - should fail
-        with pytest.raises(IntegrityError) as exc_info:
-            price2 = Price(
-                instrument_id=instrument.id,
-                date=today,
-                close=155.00  # Different price, but same instrument and date
-            )
-            session.add(price2)
-            session.commit()
+        # Use a fresh session to avoid identity conflicts
+        from sqlalchemy.orm import sessionmaker
+        SessionLocal = sessionmaker(bind=session.bind)
+        fresh_session = SessionLocal()
         
-        # Should mention PRIMARY KEY constraint
-        assert "PRIMARY KEY" in str(exc_info.value) or "UNIQUE" in str(exc_info.value)
+        try:
+            with pytest.raises(IntegrityError) as exc_info:
+                price2 = Price(
+                    instrument_id=instrument.id,
+                    date=today,
+                    close=155.00  # Different price, but same instrument and date
+                )
+                fresh_session.add(price2)
+                fresh_session.commit()
+            
+            # Should mention PRIMARY KEY constraint
+            assert "PRIMARY KEY" in str(exc_info.value) or "UNIQUE" in str(exc_info.value)
+        finally:
+            fresh_session.close()
     
     def test_prices_different_dates_allowed(self, temp_db_session):
         """Test that same instrument can have prices on different dates."""
@@ -209,9 +217,9 @@ class TestPricesPrimaryKey:
         # Should mention foreign key constraint
         assert "FOREIGN KEY" in str(exc_info.value)
     
-    def test_prices_cascade_delete(self, temp_db_session):
+    def test_prices_cascade_delete(self, db_session):
         """Test that prices are deleted when instrument is deleted (CASCADE)."""
-        session = temp_db_session
+        session = db_session
         
         # Create test instrument
         instrument = Instrument(

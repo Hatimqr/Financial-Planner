@@ -11,6 +11,7 @@ planning application, including:
 
 from typing import List, Optional, Dict, Any, Tuple, Union
 from decimal import Decimal, ROUND_HALF_UP
+import decimal
 from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, desc, func
@@ -241,7 +242,8 @@ class PnLService(BaseService):
                     'total_market_value': Decimal('0'),
                     'total_cost_basis': Decimal('0'),
                     'positions': [],
-                    'valuation_date': valuation_date or datetime.now().date().isoformat()
+                    'valuation_date': valuation_date or datetime.now().date().isoformat(),
+                    'calculation_date': datetime.now().isoformat()
                 }
             
             positions_pnl = []
@@ -384,10 +386,12 @@ class PnLService(BaseService):
                 )
             
         except Exception as e:
+            import traceback
             self.logger.error(f"Error calculating total return: {str(e)}")
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
             raise BusinessLogicError(
                 message=f"Failed to calculate total return: {str(e)}",
-                details={"error_type": "calculation_error"}
+                details={"error_type": "calculation_error", "traceback": traceback.format_exc()}
             )
     
     def generate_pnl_report(
@@ -679,17 +683,54 @@ class PnLService(BaseService):
         if days > 0:
             years = Decimal(str(days)) / Decimal('365')
             if years > 0 and total_return > -1:
-                annualized_return = ((1 + total_return) ** (1 / years)) - 1
+                try:
+                    # Convert to float for power operation, then back to Decimal
+                    base = float(Decimal('1') + total_return)
+                    exponent = float(Decimal('1') / years)
+                    
+                    # Validate base and exponent before power operation
+                    if base <= 0 or exponent == 0 or not all(isinstance(x, (int, float)) and not (x != x) for x in [base, exponent]):
+                        annualized_return = Decimal('0')
+                    else:
+                        result = base ** exponent
+                        # Check if result is valid (not NaN, not infinity)
+                        if result != result or result == float('inf') or result == float('-inf'):
+                            annualized_return = Decimal('0')
+                        else:
+                            annualized_return = Decimal(str(result)) - Decimal('1')
+                except (ValueError, OverflowError, decimal.InvalidOperation):
+                    annualized_return = Decimal('0')
             else:
                 annualized_return = Decimal('0')
         else:
             annualized_return = Decimal('0')
         
+        # Safe quantization with error handling
+        try:
+            total_return_quantized = total_return.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
+        except decimal.InvalidOperation:
+            total_return_quantized = Decimal('0')
+        
+        try:
+            total_return_percentage = (total_return * Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        except decimal.InvalidOperation:
+            total_return_percentage = Decimal('0')
+            
+        try:
+            annualized_return_quantized = annualized_return.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
+        except decimal.InvalidOperation:
+            annualized_return_quantized = Decimal('0')
+            
+        try:
+            annualized_return_percentage = (annualized_return * Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        except decimal.InvalidOperation:
+            annualized_return_percentage = Decimal('0')
+
         return {
-            'total_return': total_return.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP),
-            'total_return_percentage': (total_return * Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
-            'annualized_return': annualized_return.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP),
-            'annualized_return_percentage': (annualized_return * Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
+            'total_return': total_return_quantized,
+            'total_return_percentage': total_return_percentage,
+            'annualized_return': annualized_return_quantized,
+            'annualized_return_percentage': annualized_return_percentage,
             'beginning_value': beginning_value,
             'ending_value': ending_value,
             'net_cash_flows': net_cash_flows,
