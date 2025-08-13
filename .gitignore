@@ -57,6 +57,8 @@ data/backups/
 .coverage
 htmlcov/
 
+frontend/
+
 # Node.js (for future frontend)
 node_modules/
 npm-debug.log*
@@ -71,6 +73,3 @@ frontend/build/
 # Temporary files
 *.tmp
 *.temp
-
-
-frontend/
