@@ -1,6 +1,10 @@
-# Local-First Investment Planner & Portfolio Analytics
+# Local-First Investment Planner & Portfolio Analytics - MVP
 
 This project is a local-first investment tracking and portfolio management tool built with Python (FastAPI) backend and React frontend, using SQLite for data storage.
+
+## Current Focus: MVP Development
+
+We are currently building the **Minimum Viable Product (MVP)** which focuses on core double-entry accounting functionality with a clean, utilitarian interface. The MVP includes basic transaction management, account ledgers, and a dashboard view.
 
 ## Project Structure
 
@@ -34,9 +38,9 @@ npm install
 ```
 
 ### API Documentation
-- **Full API Docs**: [api-endpoints.md](./api-endpoints.md)
+- **Current API Docs**: [api-endpoints.md](./api-endpoints.md)
 - **Auto-generated Docs**: http://localhost:8000/docs (when server running)
-- **30+ Endpoints**: Accounts, Instruments, Transactions, Corporate Actions, Portfolio
+- **MVP Focus**: Core endpoints for Accounts, Transactions, and Dashboard functionality
 
 ### Development
 ```bash
@@ -63,15 +67,22 @@ npm run typecheck   # Frontend
 make dist
 ```
 
-## Key Features
+## MVP Key Features
 
-- **Double-entry accounting** with balanced transactions
+- **Double-entry accounting** with balanced transactions (Core implementation)
 - **Multiple account types**: Assets, Liabilities, Income, Expenses, Equity
-- **Portfolio management** with target allocations and rebalancing
-- **Performance analytics**: TWR, IRR, risk metrics, benchmark comparisons
-- **Multi-currency support** with FX rate handling
-- **Local-first**: All data stored in SQLite, optional network adapters
-- **Import/Export**: CSV/XLSX support for trades, prices, positions
+- **Account management**: Create, view, edit, delete accounts
+- **Transaction management**: Create and view double-entry transactions
+- **Dashboard**: Net worth display, account summaries, time-series visualization
+- **T-Account view**: Classic ledger interface for transaction details
+- **Local-first**: All data stored in SQLite, no network dependencies
+
+## Future Features (Post-MVP)
+- Portfolio management with target allocations and rebalancing
+- Performance analytics: TWR, IRR, risk metrics, benchmark comparisons
+- Multi-currency support with FX rate handling
+- Import/Export: CSV/XLSX support for trades, prices, positions
+- Goal planning and Monte Carlo simulations
 
 ## Architecture
 
@@ -95,14 +106,15 @@ make dist
 - Database seeding and comprehensive test suite
 - 38/39 tests passing with full schema validation
 
-**Epic 2 - Core Accounting Engine**: 🚧 In Progress
-- Double-entry journal service with balance validation
-- FIFO lot engine for cost basis tracking
-- Corporate actions processing (splits, dividends)
-- Realized/unrealized P&L calculations
-- Position reconciliation from lots
+**Epic 2 - MVP Backend Development**: 🚧 In Progress
+- Account management endpoints (GET, POST, PUT, DELETE)
+- Transaction creation with double-entry validation
+- Dashboard time-series data endpoint
+- Balance calculation and aggregation services
 
-See docs/checklist.md for detailed progress tracking across all 16 epics.
+**Next Phase**: Frontend UI implementation for MVP features
+
+See docs/checklist.md for detailed progress tracking and docs/UX-design.md for UI specifications.
 
 ## Testing
 

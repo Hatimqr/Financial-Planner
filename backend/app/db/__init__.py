@@ -1,5 +1,5 @@
 """Database engine and session management."""
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -42,9 +42,39 @@ def get_db():
         db.close()
 
 
+def create_triggers():
+    """Create database triggers for business logic constraints."""
+    with engine.connect() as conn:
+        # Create the balance trigger
+        conn.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS trg_tx_post_balance
+            BEFORE UPDATE OF posted ON transactions
+            FOR EACH ROW WHEN NEW.posted = 1
+            BEGIN
+              SELECT CASE WHEN (
+                SELECT ROUND(COALESCE(SUM(CASE dr_cr WHEN 'DR' THEN amount ELSE -amount END),0), 6)
+                FROM transaction_lines WHERE transaction_id = NEW.id
+              ) != 0.0 THEN RAISE(ABORT, 'Unbalanced transaction') END;
+            END;
+        """))
+        
+        # Create lot over-close prevention trigger
+        conn.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS trg_lot_not_overclose
+            BEFORE UPDATE OF qty_closed ON lots
+            FOR EACH ROW WHEN NEW.qty_closed > OLD.qty_opened
+            BEGIN
+              SELECT RAISE(ABORT, 'Cannot close more than opened quantity');
+            END;
+        """))
+        
+        conn.commit()
+
+
 def create_tables():
-    """Create all tables. Used for testing and initial setup."""
+    """Create all tables and triggers. Used for testing and initial setup."""
     Base.metadata.create_all(bind=engine)
+    create_triggers()
 
 
 def drop_tables():

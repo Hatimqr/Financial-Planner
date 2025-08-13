@@ -71,3 +71,6 @@ frontend/build/
 # Temporary files
 *.tmp
 *.temp
+
+
+frontend/

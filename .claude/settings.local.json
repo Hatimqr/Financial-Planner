@@ -11,7 +11,12 @@
       "Bash(python -m pytest tests/test_triggers.py -v)",
       "Bash(python -m pytest tests/test_triggers.py::TestTriggers::test_balance_trigger_unbalanced -v)",
       "Bash(python -m pytest tests/services/test_pnl_service.py::TestPnLService::test_calculate_unrealized_pnl_basic -v -s)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(/opt/anaconda3/envs/zone_detect/bin/python -m pytest tests/services/test_dashboard_service.py::TestDashboardService::test_account_balance_calculations_asset_account -v)",
+      "Bash(/opt/anaconda3/envs/zone_detect/bin/python -m pytest tests/services/test_dashboard_service.py -v)",
+      "Bash(/opt/anaconda3/envs/zone_detect/bin/python -m pytest tests/test_dashboard_integration.py -v)",
+      "Bash(/opt/anaconda3/envs/zone_detect/bin/python -m pytest tests/test_dashboard_integration.py::TestDashboardSummaryEndpoint::test_get_dashboard_summary_invalid_date -v -s)",
+      "Bash(/opt/anaconda3/envs/zone_detect/bin/python -c \"\nimport sqlite3\nimport sys\nsys.path.append(''/Users/hatim/Code/financial-planning/backend'')\n\ntry:\n    from app.config import get_database_url\n    db_url = get_database_url()\n    print(''Database URL:'', db_url)\n    \n    if ''sqlite'' in db_url:\n        db_path = db_url.replace(''sqlite:///'', '''')\n        conn = sqlite3.connect(db_path)\n    else:\n        conn = sqlite3.connect(''data/app.db'')\n    \n    cursor = conn.cursor()\n    cursor.execute(\"\"SELECT name FROM sqlite_master WHERE type=''trigger'';\"\")\n    triggers = cursor.fetchall()\n    print(''Existing triggers:'', [t[0] for t in triggers])\n    \n    cursor.execute(\"\"SELECT sql FROM sqlite_master WHERE type=''trigger'';\"\")\n    trigger_sql = cursor.fetchall()\n    for sql in trigger_sql:\n        print(''Trigger SQL:'', sql[0])\n    \n    conn.close()\nexcept Exception as e:\n    print(''Error:'', e)\n\")"
     ],
     "deny": []
   }

@@ -143,7 +143,8 @@ from app.routers import (
     instruments, 
     transactions,
     corporate_actions,
-    portfolio
+    portfolio,
+    dashboard
 )
 
 app.include_router(accounts.router)
@@ -151,6 +152,7 @@ app.include_router(instruments.router)
 app.include_router(transactions.router)
 app.include_router(corporate_actions.router)
 app.include_router(portfolio.router)
+app.include_router(dashboard.router)
 
 @app.get("/api/status")
 async def api_status():

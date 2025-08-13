@@ -202,16 +202,18 @@ class TransactionRepository(FilterableRepository[Transaction]):
             Tuple of (is_balanced, total_debits, total_credits)
         """
         try:
+            from sqlalchemy import case
+            
             result = (
                 self.db.query(
                     func.sum(
-                        func.case(
+                        case(
                             (TransactionLine.dr_cr == 'DR', TransactionLine.amount),
                             else_=0
                         )
                     ).label('total_debits'),
                     func.sum(
-                        func.case(
+                        case(
                             (TransactionLine.dr_cr == 'CR', TransactionLine.amount),
                             else_=0
                         )
