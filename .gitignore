@@ -57,7 +57,7 @@ data/backups/
 .coverage
 htmlcov/
 
-frontend/
+
 
 # Node.js (for future frontend)
 node_modules/

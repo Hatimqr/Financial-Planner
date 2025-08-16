@@ -51,6 +51,10 @@ Updates an existing account's details.
 #### `DELETE /api/accounts/{account_id}`
 Deletes an account (only if no related transactions exist).
 
+**Response:** 
+- Success: `{"ok": true, "message": "Account deleted successfully"}`
+- Error: HTTP 400 if account has associated data
+
 ---
 
 ### **Transactions** - `/api/transactions`
@@ -97,6 +101,63 @@ Simplified endpoint for creating trade transactions.
 
 #### `GET /api/transactions/{transaction_id}`
 Retrieves a specific transaction with all line details.
+
+#### `DELETE /api/transactions/{transaction_id}`
+Deletes a transaction and all associated line items.
+
+**Response:**
+- Success: `{"ok": true, "message": "Transaction deleted successfully", "transaction_id": <id>}`
+- Error: HTTP 400 if deletion fails
+
+---
+
+### **Instruments** - `/api/instruments`
+
+All instrument management functionality is **✅ IMPLEMENTED**
+
+#### `GET /api/instruments/`
+Retrieves all financial instruments.
+
+#### `POST /api/instruments/`
+Creates a new financial instrument.
+
+#### `GET /api/instruments/{instrument_id}`
+Retrieves a specific instrument by ID.
+
+#### `PUT /api/instruments/{instrument_id}`
+Updates an existing instrument's details.
+
+#### `DELETE /api/instruments/{instrument_id}`
+Deletes an instrument (only if no related transactions exist).
+
+**Response:**
+- Success: `{"ok": true, "message": "Instrument deleted successfully"}`
+- Error: HTTP 400 if instrument has associated transactions or data
+
+---
+
+### **Corporate Actions** - `/api/corporate_actions`
+
+All corporate action management functionality is **✅ IMPLEMENTED**
+
+#### `GET /api/corporate_actions/`
+Retrieves corporate actions with filtering options.
+
+#### `POST /api/corporate_actions/`
+Creates a new corporate action.
+
+#### `GET /api/corporate_actions/{action_id}`
+Retrieves a specific corporate action by ID.
+
+#### `PUT /api/corporate_actions/{action_id}`
+Updates an existing corporate action.
+
+#### `DELETE /api/corporate_actions/{action_id}`
+Deletes a corporate action (only if not yet processed).
+
+**Response:**
+- Success: `{"ok": true, "message": "Corporate action deleted successfully"}`
+- Error: HTTP 400 if corporate action is already processed
 
 ---
 

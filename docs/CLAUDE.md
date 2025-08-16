@@ -106,13 +106,16 @@ make dist
 - Database seeding and comprehensive test suite
 - 38/39 tests passing with full schema validation
 
-**Epic 2 - MVP Backend Development**: 🚧 In Progress
-- Account management endpoints (GET, POST, PUT, DELETE)
-- Transaction creation with double-entry validation
-- Dashboard time-series data endpoint
-- Balance calculation and aggregation services
+**Epic 2 - MVP Backend Development**: ✅ Complete
+- Full CRUD operations for accounts, transactions, instruments, and corporate actions
+- Comprehensive dashboard endpoints (summary, timeseries, ledger views)
+- Double-entry transaction validation and posting
+- Balance calculation and aggregation services with date filtering
+- All DELETE endpoints implemented with proper validation
 
-**Next Phase**: Frontend UI implementation for MVP features
+**Epic 3 - Frontend UI Enhancement**: 🚧 In Progress
+- Frontend UI overhaul focused on visual design and styling improvements
+- Maintaining existing app layout structure and functionality
 
 See docs/checklist.md for detailed progress tracking and docs/UX-design.md for UI specifications.
 

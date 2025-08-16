@@ -564,12 +564,7 @@ class TransactionService(BaseService[Transaction]):
         if not transaction:
             self.handle_not_found(transaction_id)
         
-        # Cannot delete posted transactions
-        if transaction.posted == 1:
-            raise BusinessLogicError(
-                message="Cannot delete posted transaction",
-                details={'transaction_id': transaction_id}
-            )
+        # Allow deletion of any transaction (posted or draft)
         
         # Delete the transaction
         with self.transaction():

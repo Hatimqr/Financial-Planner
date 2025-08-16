@@ -66,6 +66,7 @@ class TransactionCreateRequest(BaseModel):
     date: str
     memo: str
     reference: Optional[str] = None
+    auto_post: bool = False
     lines: List[TransactionLineRequest]
     
     @field_validator('type')
@@ -174,8 +175,8 @@ async def get_transactions(
                 type=tx.type,
                 date=tx.date,
                 memo=tx.memo,
-                reference=tx.reference,
-                status=tx.status,
+                reference=None,  # Transaction model doesn't have reference field
+                status="posted" if tx.posted else "draft",  # Convert posted int to status string
                 created_at=tx.created_at,
                 lines=lines
             ))
@@ -226,8 +227,8 @@ async def get_transaction(
             type=transaction.type,
             date=transaction.date,
             memo=transaction.memo,
-            reference=transaction.reference,
-            status=transaction.status,
+            reference=None,  # Transaction model doesn't have reference field
+            status="posted" if transaction.posted else "draft",  # Convert posted int to status string
             created_at=transaction.created_at,
             lines=lines
         )
@@ -266,11 +267,11 @@ async def create_transaction(
         
         # Create transaction
         transaction = tx_service.create_transaction(
-            type=transaction_data.type,
+            transaction_type=transaction_data.type,
             date=transaction_data.date,
             memo=transaction_data.memo,
             lines=lines_data,
-            reference=transaction_data.reference
+            auto_post=transaction_data.auto_post
         )
         
         # Return the created transaction
@@ -361,4 +362,30 @@ async def unpost_transaction(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to unpost transaction: {str(e)}"
+        )
+
+
+@router.delete("/{transaction_id}")
+async def delete_transaction(
+    transaction_id: int,
+    db: Session = Depends(get_db)
+):
+    """Delete a transaction (only allowed for draft transactions)."""
+    try:
+        tx_service = TransactionService(db)
+        success = tx_service.delete_transaction(transaction_id)
+        
+        if success:
+            return {"ok": True, "message": "Transaction deleted successfully", "transaction_id": transaction_id}
+        else:
+            raise HTTPException(status_code=400, detail="Failed to delete transaction")
+        
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (ValidationError, BusinessLogicError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete transaction: {str(e)}"
         )

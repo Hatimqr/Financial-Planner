@@ -1,4 +1,4 @@
-.PHONY: dev dev-parallel test clean install start db-init db-seed db-reset db-drop
+.PHONY: dev dev-parallel test test-unit test-integration test-frontend test-browser clean install start db-init db-seed db-reset db-drop
 
 # Development targets
 dev: dev-parallel
@@ -40,16 +40,37 @@ db-seed:
 
 db-reset:
 	@echo "Resetting database..."
-	cd backend && python reset_db.py
+	cd backend && /opt/anaconda3/envs/zone_detect/bin/python utils/reset_db.py
 
 db-drop:
 	@echo "Dropping database tables..."
 	cd backend && python -c "from app.db import Base, engine; Base.metadata.drop_all(bind=engine); print('Database tables dropped successfully!')"
 
 # Test targets
-test:
-	@echo "Running backend tests..."
-	cd backend && python -m pytest -q
+test: test-unit test-integration test-frontend
+	@echo "✅ All tests completed successfully!"
+
+test-unit:
+	@echo "🧪 Running unit tests..."
+	cd backend && /opt/anaconda3/envs/zone_detect/bin/python -m pytest tests/ -v --ignore=tests/test_frontend_integration.py
+
+test-integration:
+	@echo "🔗 Running integration tests..."
+	cd backend && /opt/anaconda3/envs/zone_detect/bin/python -m pytest tests/test_*integration*.py -v
+
+test-frontend:
+	@echo "🌐 Running frontend integration tests..."
+	cd backend && ./tests/frontend/test_frontend.sh
+
+test-browser:
+	@echo "🖥️  Starting browser test server..."
+	@echo "📋 Open http://localhost:5175/tests/frontend/test_frontend_browser.html in your browser"
+	@echo "🛑 Press Ctrl+C to stop the server"
+	cd backend && /opt/anaconda3/envs/zone_detect/bin/python tests/frontend/serve_test.py
+
+test-fast:
+	@echo "⚡ Running fast tests only..."
+	cd backend && /opt/anaconda3/envs/zone_detect/bin/python -m pytest tests/ -q --ignore=tests/test_frontend_integration.py
 
 # Cleanup
 clean:
@@ -72,8 +93,15 @@ help:
 	@echo "  dev-backend  - Start only backend development server"
 	@echo "  dev-frontend - Start only frontend development server"
 	@echo "  install      - Install all dependencies"
-	@echo "  test         - Run backend tests"
 	@echo "  clean        - Clean up build artifacts"
+	@echo ""
+	@echo "Test commands:"
+	@echo "  test         - 🧪 Run all tests (unit + integration + frontend)"
+	@echo "  test-unit    - 🔬 Run unit tests only"
+	@echo "  test-integration - 🔗 Run integration tests only"
+	@echo "  test-frontend - 🌐 Run frontend API integration tests"
+	@echo "  test-browser - 🖥️  Start browser-based test server"
+	@echo "  test-fast    - ⚡ Run fast tests only (excludes slow integration tests)"
 	@echo ""
 	@echo "Database commands:"
 	@echo "  db-init      - Initialize database (create tables)"
@@ -85,6 +113,6 @@ help:
 	@echo ""
 	@echo "Quick start: make dev"
 	@echo "This will start both servers:"
-	@echo "  Frontend: http://localhost:5173"
+	@echo "  Frontend: http://localhost:5173 (or 5174)"
 	@echo "  Backend API: http://localhost:8000"
 	@echo "  Database tables are auto-created on first run"

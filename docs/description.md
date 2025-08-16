@@ -237,22 +237,29 @@ Directory skeleton:
 
 ---
 
-## 12) MVP
+## 12) MVP - Current Status
 
-Must‑have:
+**✅ IMPLEMENTED (Backend Complete):**
 
-- Double‑entry journal with trades, transfers, dividends, fees, FX.
-- Instruments, prices, FX, lots with FIFO.
-- Portfolios, targets, rebalance preview.
-- TWR, IRR, drawdown, exposures, benchmark compare.
-- Monthly lump‑sum cashflow buckets and contribution planner.
-- CSV imports/exports and DB backup.
+- ✅ Double‑entry journal with trades, transfers, dividends, fees, FX
+- ✅ Full CRUD operations for accounts, transactions, instruments, corporate actions
+- ✅ Dashboard endpoints with summary, timeseries, and ledger views
+- ✅ Balance calculation and aggregation services with date filtering
+- ✅ Comprehensive API with DELETE endpoints and proper validation
 
-Nice‑to‑have:
+**🚧 IN PROGRESS:**
 
-- Monte Carlo and bootstrap simulations.
-- Average cost method, basic bond handling.
-- Notes/decision log.
+- 🚧 Frontend UI overhaul - modernizing visual design while preserving layout structure
+
+**📋 FUTURE (Post-MVP):**
+
+- Portfolio management with target allocations and rebalancing
+- TWR, IRR, drawdown, exposures, benchmark compare
+- Monthly lump‑sum cashflow buckets and contribution planner
+- CSV imports/exports and DB backup
+- Monte Carlo and bootstrap simulations
+- Average cost method, basic bond handling
+- Notes/decision log
 
 ---
 

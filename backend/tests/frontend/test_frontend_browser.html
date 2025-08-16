@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frontend Integration Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .loading {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .data-display {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+            overflow-x: auto;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #28a745;
+        }
+        .stat-label {
+            color: #6c757d;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Frontend Integration Test Dashboard</h1>
+    <p>This page tests the same API endpoints that the React frontend uses.</p>
+
+    <div class="test-section">
+        <h2>API Connectivity Tests</h2>
+        <button onclick="runAllTests()">Run All Tests</button>
+        <button onclick="clearResults()">Clear Results</button>
+        <div id="test-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Dashboard Data</h2>
+        <button onclick="loadDashboardData()">Load Dashboard Data</button>
+        <div id="dashboard-summary"></div>
+        <div id="dashboard-data"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Accounts Data</h2>
+        <button onclick="loadAccountsData()">Load Accounts</button>
+        <div id="accounts-data"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Time Series Data</h2>
+        <button onclick="loadTimeSeriesData()">Load Time Series (YTD)</button>
+        <div id="timeseries-data"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Transaction Data</h2>
+        <button onclick="loadTransactionData()">Load Transactions</button>
+        <div id="transaction-data"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        
+        function addResult(message, type = 'success') {
+            const resultsDiv = document.getElementById('test-results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `test-result ${type}`;
+            resultDiv.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            resultsDiv.appendChild(resultDiv);
+            resultsDiv.scrollTop = resultsDiv.scrollHeight;
+        }
+
+        function clearResults() {
+            document.getElementById('test-results').innerHTML = '';
+        }
+
+        async function testEndpoint(name, url) {
+            try {
+                addResult(`Testing ${name}...`, 'loading');
+                const response = await fetch(url);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    addResult(`✓ ${name} - Success (${response.status})`, 'success');
+                    return data;
+                } else {
+                    addResult(`✗ ${name} - Failed (${response.status})`, 'error');
+                    return null;
+                }
+            } catch (error) {
+                addResult(`✗ ${name} - Error: ${error.message}`, 'error');
+                return null;
+            }
+        }
+
+        async function runAllTests() {
+            clearResults();
+            addResult('Starting frontend integration tests...', 'loading');
+            
+            // Test all main endpoints
+            await testEndpoint('Health Check', `${API_BASE}/health`);
+            await testEndpoint('Accounts List', `${API_BASE}/api/accounts/`);
+            await testEndpoint('Dashboard Summary', `${API_BASE}/api/dashboard/summary`);
+            await testEndpoint('Transactions', `${API_BASE}/api/transactions/`);
+            
+            const startDate = '2025-01-01';
+            const endDate = '2025-08-16';
+            await testEndpoint('Time Series', `${API_BASE}/api/dashboard/timeseries?start_date=${startDate}&end_date=${endDate}`);
+            
+            // Test account ledger (using account ID 1)
+            await testEndpoint('Account Ledger', `${API_BASE}/api/dashboard/accounts/1/ledger`);
+            
+            addResult('All tests completed!', 'success');
+        }
+
+        async function loadDashboardData() {
+            const summaryData = await testEndpoint('Dashboard Summary', `${API_BASE}/api/dashboard/summary`);
+            
+            if (summaryData) {
+                // Create summary stats
+                const summaryDiv = document.getElementById('dashboard-summary');
+                summaryDiv.innerHTML = `
+                    <div class="summary-stats">
+                        <div class="stat-card">
+                            <div class="stat-value">$${summaryData.net_worth.toLocaleString()}</div>
+                            <div class="stat-label">Net Worth</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">$${summaryData.total_assets.toLocaleString()}</div>
+                            <div class="stat-label">Total Assets</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">$${summaryData.total_liabilities.toLocaleString()}</div>
+                            <div class="stat-label">Total Liabilities</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${summaryData.account_balances.length}</div>
+                            <div class="stat-label">Accounts</div>
+                        </div>
+                    </div>
+                `;
+                
+                // Show raw data
+                const dataDiv = document.getElementById('dashboard-data');
+                dataDiv.innerHTML = `<div class="data-display">${JSON.stringify(summaryData, null, 2)}</div>`;
+            }
+        }
+
+        async function loadAccountsData() {
+            const accountsData = await testEndpoint('Accounts', `${API_BASE}/api/accounts/`);
+            
+            if (accountsData) {
+                const dataDiv = document.getElementById('accounts-data');
+                
+                // Create accounts table
+                let tableHTML = `
+                    <table style="width: 100%; border-collapse: collapse; margin: 10px 0;">
+                        <thead>
+                            <tr style="background-color: #f8f9fa;">
+                                <th style="border: 1px solid #dee2e6; padding: 8px;">ID</th>
+                                <th style="border: 1px solid #dee2e6; padding: 8px;">Name</th>
+                                <th style="border: 1px solid #dee2e6; padding: 8px;">Type</th>
+                                <th style="border: 1px solid #dee2e6; padding: 8px;">Currency</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                accountsData.forEach(account => {
+                    tableHTML += `
+                        <tr>
+                            <td style="border: 1px solid #dee2e6; padding: 8px;">${account.id}</td>
+                            <td style="border: 1px solid #dee2e6; padding: 8px;">${account.name}</td>
+                            <td style="border: 1px solid #dee2e6; padding: 8px;">${account.type}</td>
+                            <td style="border: 1px solid #dee2e6; padding: 8px;">${account.currency}</td>
+                        </tr>
+                    `;
+                });
+                
+                tableHTML += '</tbody></table>';
+                
+                dataDiv.innerHTML = tableHTML + `<div class="data-display">${JSON.stringify(accountsData, null, 2)}</div>`;
+            }
+        }
+
+        async function loadTimeSeriesData() {
+            const startDate = '2025-08-01';
+            const endDate = '2025-08-16';
+            const timeSeriesData = await testEndpoint('Time Series', `${API_BASE}/api/dashboard/timeseries?start_date=${startDate}&end_date=${endDate}`);
+            
+            if (timeSeriesData) {
+                const dataDiv = document.getElementById('timeseries-data');
+                
+                // Show summary
+                const dataPoints = timeSeriesData.data_points || [];
+                const accountInfo = timeSeriesData.account_info || {};
+                
+                let summaryHTML = `
+                    <p><strong>Data Points:</strong> ${dataPoints.length}</p>
+                    <p><strong>Accounts Tracked:</strong> ${Object.keys(accountInfo).length}</p>
+                `;
+                
+                if (dataPoints.length > 0) {
+                    const latestPoint = dataPoints[dataPoints.length - 1];
+                    summaryHTML += `<p><strong>Latest Net Worth:</strong> $${latestPoint.net_worth.toLocaleString()}</p>`;
+                }
+                
+                dataDiv.innerHTML = summaryHTML + `<div class="data-display">${JSON.stringify(timeSeriesData, null, 2)}</div>`;
+            }
+        }
+
+        async function loadTransactionData() {
+            const transactionData = await testEndpoint('Transactions', `${API_BASE}/api/transactions/`);
+            
+            if (transactionData) {
+                const dataDiv = document.getElementById('transaction-data');
+                
+                let summaryHTML = `<p><strong>Total Transactions:</strong> ${transactionData.length}</p>`;
+                
+                if (transactionData.length > 0) {
+                    const transaction = transactionData[0];
+                    summaryHTML += `
+                        <p><strong>Latest Transaction:</strong> ${transaction.type} - ${transaction.memo}</p>
+                        <p><strong>Date:</strong> ${transaction.date}</p>
+                        <p><strong>Lines:</strong> ${transaction.lines ? transaction.lines.length : 0}</p>
+                    `;
+                }
+                
+                dataDiv.innerHTML = summaryHTML + `<div class="data-display">${JSON.stringify(transactionData, null, 2)}</div>`;
+            }
+        }
+
+        // Auto-run tests on page load
+        window.addEventListener('load', () => {
+            addResult('Page loaded. Click "Run All Tests" to test API connectivity.', 'loading');
+        });
+    </script>
+</body>
+</html>
