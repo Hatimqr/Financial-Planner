@@ -1,0 +1,288 @@
+/* Global styles for Ledger TUI */
+
+Screen {
+    background: $surface;
+}
+
+.screen-title {
+    dock: top;
+    width: 100%;
+    padding: 1 2;
+    background: $primary;
+    color: $text;
+    text-style: bold;
+}
+
+DataTable {
+    height: 1fr;
+    border: solid $primary;
+}
+
+/* Modal styles */
+.modal {
+    align: center middle;
+    width: 70;
+    height: auto;
+    background: $panel;
+    border: thick $primary;
+    padding: 1 2;
+}
+
+.modal-title {
+    text-align: center;
+    text-style: bold;
+    padding-bottom: 1;
+    color: $accent;
+}
+
+.modal-error {
+    text-align: center;
+    color: $error;
+    padding: 1 0;
+}
+
+.form-field {
+    margin: 1 0;
+}
+
+.button-row {
+    align: center middle;
+    padding-top: 1;
+    height: auto;
+}
+
+Button {
+    margin: 0 1;
+}
+
+Input {
+    margin: 0 0 1 0;
+    border: solid $primary;
+}
+
+Select {
+    margin: 0 0 1 0;
+    border: solid $primary;
+}
+
+Label {
+    padding: 0 0 0 0;
+    color: $text-muted;
+}
+
+/* Container styles */
+Container {
+    height: 100%;
+}
+
+/* Footer and Header */
+Header {
+    background: $primary;
+}
+
+Footer {
+    background: $panel;
+}
+
+/* Dashboard styles */
+#kpi-row {
+    height: auto;
+    padding: 1;
+}
+
+.kpi-container {
+    width: 1fr;
+    height: auto;
+    margin: 0 1;
+    padding: 1;
+    border: solid $primary;
+    background: $panel;
+}
+
+.kpi-widget {
+    height: auto;
+}
+
+.kpi-title {
+    color: $text-muted;
+    text-style: bold;
+}
+
+.kpi-value {
+    text-style: bold;
+    color: $accent;
+    padding: 0 0 0 1;
+}
+
+.kpi-subtitle {
+    color: $text-muted;
+    padding: 0 0 0 1;
+}
+
+.kpi-income .kpi-value {
+    color: $success;
+}
+
+.kpi-expense .kpi-value {
+    color: $error;
+}
+
+.kpi-good .kpi-value {
+    color: $success;
+}
+
+.kpi-neutral .kpi-value {
+    color: $warning;
+}
+
+.kpi-bad .kpi-value {
+    color: $error;
+}
+
+#dashboard-content {
+    height: 1fr;
+}
+
+#main-content {
+    height: 1fr;
+    padding: 1;
+}
+
+#transactions-section {
+    width: 60%;
+    height: 100%;
+    padding-right: 1;
+}
+
+#breakdown-section {
+    width: 40%;
+    height: 100%;
+}
+
+.section-title {
+    text-style: bold;
+    padding: 0 0 1 0;
+    color: $accent;
+}
+
+/* Period filter buttons */
+#period-buttons {
+    height: auto;
+    padding: 1;
+    align: left middle;
+}
+
+#period-buttons Button {
+    margin: 0 1 0 0;
+}
+
+/* Reports styles */
+#report-tabs {
+    height: 1fr;
+}
+
+.report-header {
+    text-style: bold;
+    padding: 1;
+    background: $primary;
+    color: $text;
+}
+
+.report-section-title {
+    text-style: bold;
+    padding: 1 0 0 0;
+    color: $accent;
+}
+
+.report-line {
+    padding: 0 0 0 2;
+}
+
+.report-separator {
+    color: $text-muted;
+}
+
+.report-total {
+    text-style: bold;
+}
+
+.report-net-positive {
+    text-style: bold;
+    color: $success;
+}
+
+.report-net-negative {
+    text-style: bold;
+    color: $error;
+}
+
+#income-statement-content, #balance-sheet-content {
+    padding: 1;
+}
+
+/* Budget styles */
+#budget-container {
+    height: 100%;
+}
+
+.budget-summary {
+    padding: 1 2;
+    text-style: bold;
+    color: $accent;
+}
+
+#budget-list {
+    height: 1fr;
+    padding: 1;
+}
+
+.no-budgets {
+    text-align: center;
+    padding: 3;
+    color: $text-muted;
+}
+
+BudgetProgressWidget {
+    height: auto;
+    margin: 1 0;
+    padding: 1;
+    border: solid $primary;
+}
+
+.budget-header {
+    padding-bottom: 1;
+}
+
+.budget-progress {
+    width: 100%;
+}
+
+.budget-ok {
+    background: $panel;
+}
+
+.budget-warning {
+    background: $warning 20%;
+}
+
+.budget-over {
+    background: $error 20%;
+}
+
+.budget-over .budget-header {
+    color: $error;
+    text-style: bold;
+}
+
+/* Tab content styles */
+TabPane {
+    height: 1fr;
+}
+
+TabbedContent {
+    height: 1fr;
+}
+
+VerticalScroll {
+    height: 1fr;
+}
