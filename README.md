@@ -4,10 +4,6 @@ A fast, modern, keyboard-driven terminal application for managing personal finan
 
 **Think: Claude Code meets accounting.**
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue)
-![Python](https://img.shields.io/badge/python-3.11+-green)
-![License](https://img.shields.io/badge/license-MIT-blue)
-
 ## Features
 
 ### Core Features (v0.2)
@@ -20,17 +16,18 @@ A fast, modern, keyboard-driven terminal application for managing personal finan
 
 ### Screens
 
-| Screen | Key | Description |
-|--------|-----|-------------|
-| Dashboard | `d` | Net worth, income/expenses KPIs, recent transactions, expense breakdown |
-| Accounts | `a` | Hierarchical account tree with balances |
-| Transactions | `t` | Transaction list with date filtering and search |
-| Reports | `r` | Income Statement and Balance Sheet |
-| Budgets | `b` | Budget tracking with visual progress bars |
+| Screen       | Key   | Description                                                             |
+| ------------ | ----- | ----------------------------------------------------------------------- |
+| Dashboard    | `d` | Net worth, income/expenses KPIs, recent transactions, expense breakdown |
+| Accounts     | `a` | Hierarchical account tree with balances                                 |
+| Transactions | `t` | Transaction list with date filtering and search                         |
+| Reports      | `r` | Income Statement and Balance Sheet                                      |
+| Budgets      | `b` | Budget tracking with visual progress bars                               |
 
 ### Keyboard Navigation
 
 **Global:**
+
 - `Ctrl+P` — Command palette (fuzzy search all commands)
 - `d/a/t/r/b` — Quick navigation to screens
 - `/` — Search transactions
@@ -38,11 +35,13 @@ A fast, modern, keyboard-driven terminal application for managing personal finan
 - `q` — Quit
 
 **Vim-style (in lists):**
+
 - `j/k` — Move down/up
 - `gg/G` — Jump to top/bottom
 - `Ctrl+D/U` — Page down/up
 
 **Actions:**
+
 - `n` — New (transaction/account/budget)
 - `f5` — Refresh current view
 - `Escape` — Back/Cancel
@@ -171,13 +170,13 @@ Every transaction is a journal entry with postings that must sum to zero.
 
 ### Account Types
 
-| Type       | Normal Balance | Examples                          |
-|------------|----------------|-----------------------------------|
-| Asset      | Debit (+)      | Bank accounts, investments, cash  |
-| Liability  | Credit (+)     | Credit cards, loans               |
-| Equity     | Credit (+)     | Opening balances                  |
-| Income     | Credit (+)     | Salary, dividends, interest       |
-| Expense    | Debit (+)      | Food, rent, utilities             |
+| Type      | Normal Balance | Examples                         |
+| --------- | -------------- | -------------------------------- |
+| Asset     | Debit (+)      | Bank accounts, investments, cash |
+| Liability | Credit (+)     | Credit cards, loans              |
+| Equity    | Credit (+)     | Opening balances                 |
+| Income    | Credit (+)     | Salary, dividends, interest      |
+| Expense   | Debit (+)      | Food, rent, utilities            |
 
 ### Account Hierarchy
 
@@ -191,14 +190,14 @@ Income:Salary
 
 ## Tech Stack
 
-| Component | Technology |
-|-----------|------------|
-| Language | Python 3.11+ |
-| TUI Framework | Textual 6.x |
-| Database | SQLite (WAL mode) |
-| ORM | SQLAlchemy 2.0 |
-| Migrations | Alembic |
-| Testing | pytest |
+| Component     | Technology        |
+| ------------- | ----------------- |
+| Language      | Python 3.11+      |
+| TUI Framework | Textual 6.x       |
+| Database      | SQLite (WAL mode) |
+| ORM           | SQLAlchemy 2.0    |
+| Migrations    | Alembic           |
+| Testing       | pytest            |
 
 ## Roadmap
 
@@ -206,10 +205,6 @@ See [docs/future-features.md](docs/future-features.md) for planned features:
 
 - **v0.3 (Advanced)**: CSV import, recurring transactions, multi-currency
 - **v1.0 (Power User)**: Auto-categorization, CLI scripting, plain-text export
-
-## License
-
-MIT License - see LICENSE file for details.
 
 ## References
 
