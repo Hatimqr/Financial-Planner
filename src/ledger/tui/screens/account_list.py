@@ -15,7 +15,6 @@ class AccountListScreen(Screen):
 
     BINDINGS = [
         Binding("n", "new_account", "New Account"),
-        Binding("escape", "app.pop_screen", "Back"),
     ]
 
     def __init__(self, db_manager: DatabaseManager):
@@ -56,7 +55,7 @@ class AccountListScreen(Screen):
                     balance = service.get_account_balance(account.id)
 
                     # Format balance with color based on account type
-                    balance_str = f"${balance:,.2f}" if balance >= 0 else f"-${abs(balance):,.2f}"
+                    balance_str = f"AED {balance:,.2f}" if balance >= 0 else f"-AED {abs(balance):,.2f}"
 
                     # Add indentation for hierarchy
                     depth = account.name.count(":")
@@ -77,6 +76,10 @@ class AccountListScreen(Screen):
 
         except Exception as e:
             self.notify(f"Error loading accounts: {e}", severity="error")
+
+    def refresh_data(self) -> None:
+        """Refresh account data (common screen interface)."""
+        self.load_accounts()
 
     def action_new_account(self) -> None:
         """Show account creation form."""

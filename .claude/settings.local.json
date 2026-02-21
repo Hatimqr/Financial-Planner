@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(conda activate:*)",
-      "Bash(pytest:*)"
+      "Bash(pytest:*)",
+      "Bash(wc:*)",
+      "Bash(python:*)",
+      "Bash(sqlite3:*)",
+      "Bash(ruff check:*)"
     ]
   }
 }

@@ -60,3 +60,7 @@ logs/
 
 # Alembic
 # (keep migrations/ but ignore local version files)
+
+# ruff
+.ruff_cache/
+

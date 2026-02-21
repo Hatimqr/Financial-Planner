@@ -6,6 +6,7 @@ from textual.widgets import Footer, Header
 
 from ledger.db.connection import DatabaseManager
 from ledger.tui.command_palette import LedgerCommands
+from ledger.tui.widgets.help_overlay import HelpSidebar
 
 
 class LedgerApp(App):
@@ -20,18 +21,11 @@ class LedgerApp(App):
 
     BINDINGS = [
         # Priority bindings (always available)
-        Binding("ctrl+p", "command_palette", "Commands", priority=True),
+        Binding("slash", "command_palette", "Commands", priority=True),
         Binding("q", "quit", "Quit", priority=True),
-        Binding("?", "help", "Help", priority=True),
+        Binding("question_mark", "help", "Help", priority=True),
 
-        # Navigation bindings (go to screens)
-        Binding("g d", "show_dashboard", "Dashboard", show=False),
-        Binding("g a", "show_accounts", "Accounts", show=False),
-        Binding("g t", "show_transactions", "Transactions", show=False),
-        Binding("g r", "show_reports", "Reports", show=False),
-        Binding("g b", "show_budgets", "Budgets", show=False),
-
-        # Quick access bindings
+        # Screen navigation
         Binding("d", "show_dashboard", "Dashboard"),
         Binding("a", "show_accounts", "Accounts"),
         Binding("t", "show_transactions", "Transactions"),
@@ -39,131 +33,116 @@ class LedgerApp(App):
         Binding("b", "show_budgets", "Budgets"),
 
         # Global actions
-        Binding("slash", "search", "Search", show=False),
+        Binding("ctrl+slash", "search", "Search", show=False),
         Binding("n", "new_transaction", "New", show=False),
     ]
 
     def __init__(self, db_manager: DatabaseManager):
-        """
-        Initialize the application.
-
-        Args:
-            db_manager: Database manager instance
-        """
         super().__init__()
         self.db_manager = db_manager
 
     def compose(self) -> ComposeResult:
-        """Create child widgets."""
         yield Header()
         yield Footer()
 
     def on_mount(self) -> None:
-        """Initialize the app on mount."""
-        # Show dashboard on startup
         self.action_show_dashboard()
 
-    def action_show_dashboard(self) -> None:
-        """Show dashboard screen."""
-        from ledger.tui.screens.dashboard import DashboardScreen
+    def _switch_main_screen(self, screen) -> None:
+        """Switch to a new main screen, replacing the current one.
 
-        self.push_screen(DashboardScreen(self.db_manager))
+        Pops all stacked screens back to the default, then pushes the new one.
+        This prevents infinite screen stacking from repeated navigation.
+        """
+        # Pop all screens except the default (base) screen
+        while len(self.screen_stack) > 1:
+            self.pop_screen()
+        self.push_screen(screen)
+
+    def action_show_dashboard(self) -> None:
+        from ledger.tui.screens.dashboard import DashboardScreen
+        self._switch_main_screen(DashboardScreen(self.db_manager))
 
     def action_show_accounts(self) -> None:
-        """Show account list screen."""
         from ledger.tui.screens.account_list import AccountListScreen
-
-        self.push_screen(AccountListScreen(self.db_manager))
+        self._switch_main_screen(AccountListScreen(self.db_manager))
 
     def action_show_transactions(self) -> None:
-        """Show transaction list screen."""
         from ledger.tui.screens.transaction_list import TransactionListScreen
-
-        self.push_screen(TransactionListScreen(self.db_manager))
+        self._switch_main_screen(TransactionListScreen(self.db_manager))
 
     def action_show_reports(self) -> None:
-        """Show reports screen."""
         from ledger.tui.screens.reports import ReportsScreen
-
-        self.push_screen(ReportsScreen(self.db_manager))
+        self._switch_main_screen(ReportsScreen(self.db_manager))
 
     def action_show_budgets(self) -> None:
-        """Show budgets screen."""
         from ledger.tui.screens.budgets import BudgetsScreen
-
-        self.push_screen(BudgetsScreen(self.db_manager))
+        self._switch_main_screen(BudgetsScreen(self.db_manager))
 
     def action_new_transaction(self) -> None:
-        """Show new transaction form."""
         from ledger.tui.widgets.transaction_form import TransactionFormModal
 
         def on_saved(result):
             if result:
                 self.notify("Transaction created!")
-                # Refresh current screen if it has a load method
-                if hasattr(self.screen, "load_data"):
-                    self.screen.load_data()
-                elif hasattr(self.screen, "load_transactions"):
-                    self.screen.load_transactions()
+                self._refresh_current_screen()
 
         self.push_screen(TransactionFormModal(self.db_manager), on_saved)
 
     def action_new_account(self) -> None:
-        """Show new account form."""
         from ledger.tui.widgets.account_form import AccountFormModal
 
         def on_saved(result):
             if result:
                 self.notify(f"Account '{result}' created!")
-                if hasattr(self.screen, "load_accounts"):
-                    self.screen.load_accounts()
+                self._refresh_current_screen()
 
         self.push_screen(AccountFormModal(self.db_manager), on_saved)
 
     def action_new_budget(self) -> None:
-        """Show new budget form."""
         from ledger.tui.widgets.budget_form import BudgetFormModal
 
         def on_saved(result):
             if result:
                 self.notify("Budget created!")
-                if hasattr(self.screen, "load_budgets"):
-                    self.screen.load_budgets()
+                self._refresh_current_screen()
 
         self.push_screen(BudgetFormModal(self.db_manager), on_saved)
 
     def action_search(self) -> None:
-        """Show search dialog."""
         from ledger.tui.widgets.search_modal import SearchModal
 
         def on_search(query):
             if query:
-                # Navigate to transactions with search filter
                 from ledger.tui.screens.transaction_list import TransactionListScreen
-
                 screen = TransactionListScreen(self.db_manager, search_query=query)
-                self.push_screen(screen)
+                self._switch_main_screen(screen)
 
         self.push_screen(SearchModal(), on_search)
 
+    def _refresh_current_screen(self) -> None:
+        """Refresh the current screen using its refresh_data method."""
+        if hasattr(self.screen, "refresh_data"):
+            self.screen.refresh_data()
+
     def action_refresh(self) -> None:
-        """Refresh current screen."""
-        if hasattr(self.screen, "load_data"):
-            self.screen.load_data()
-            self.notify("Refreshed", severity="information")
-        elif hasattr(self.screen, "load_accounts"):
-            self.screen.load_accounts()
-            self.notify("Refreshed", severity="information")
-        elif hasattr(self.screen, "load_transactions"):
-            self.screen.load_transactions()
-            self.notify("Refreshed", severity="information")
-        elif hasattr(self.screen, "load_budgets"):
-            self.screen.load_budgets()
-            self.notify("Refreshed", severity="information")
+        self._refresh_current_screen()
+        self.notify("Refreshed", severity="information")
+
+    def action_import_csv(self) -> None:
+        from ledger.tui.widgets.import_modal import ImportModal
+
+        def on_done(count):
+            if count is not None:
+                self.notify(f"Imported {count} transactions!")
+                self._refresh_current_screen()
+
+        self.push_screen(ImportModal(self.db_manager), on_done)
 
     def action_help(self) -> None:
-        """Show help screen."""
-        self.notify(
-            "Keys: d=Dashboard | a=Accounts | t=Transactions | r=Reports | b=Budgets | "
-            "n=New | /=Search | Ctrl+P=Commands | q=Quit"
-        )
+        results = self.screen.query("HelpSidebar")
+        if results:
+            sidebar = results.first()
+            sidebar.display = not sidebar.display
+        else:
+            self.screen.mount(HelpSidebar())

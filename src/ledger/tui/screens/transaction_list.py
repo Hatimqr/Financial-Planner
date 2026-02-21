@@ -1,7 +1,6 @@
 """Transaction list screen showing all transactions."""
 
 from datetime import date, timedelta
-from typing import Optional
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -20,43 +19,33 @@ class TransactionListScreen(Screen):
     BINDINGS = [
         # Actions
         Binding("n", "new_transaction", "New Transaction"),
-        Binding("slash", "search", "Search"),
-        Binding("escape", "app.pop_screen", "Back"),
+        Binding("e", "edit_transaction", "Edit"),
+        Binding("enter", "view_transaction", "View Details"),
+        Binding("backspace", "delete_transaction", "Delete"),
 
-        # Vim-style navigation
-        Binding("j", "cursor_down", "Down", show=False),
-        Binding("k", "cursor_up", "Up", show=False),
-        Binding("g g", "cursor_top", "Top", show=False),
-        Binding("G", "cursor_bottom", "Bottom", show=False),
-        Binding("ctrl+d", "page_down", "Page Down", show=False),
-        Binding("ctrl+u", "page_up", "Page Up", show=False),
+        # Period filter shortcuts
+        Binding("1", "period_all", "All", show=False),
+        Binding("2", "period_this_month", "This Month", show=False),
+        Binding("3", "period_last_month", "Last Month", show=False),
+        Binding("4", "period_this_year", "This Year", show=False),
     ]
 
     def __init__(
         self,
         db_manager: DatabaseManager,
-        search_query: Optional[str] = None,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
+        search_query: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
     ):
-        """
-        Initialize transaction list screen.
-
-        Args:
-            db_manager: Database manager instance
-            search_query: Optional search query to filter transactions
-            start_date: Optional start date filter
-            end_date: Optional end date filter
-        """
         super().__init__()
         self.db_manager = db_manager
         self.search_query = search_query
         self.start_date = start_date
         self.end_date = end_date
         self._current_period = "all"
+        self._entry_ids: list[int] = []  # Maps table row index to entry ID
 
     def compose(self) -> ComposeResult:
-        """Create child widgets."""
         title = "Transactions"
         if self.search_query:
             title = f"Transactions: \"{self.search_query}\""
@@ -74,53 +63,32 @@ class TransactionListScreen(Screen):
         )
 
     def on_mount(self) -> None:
-        """Set up the screen when it's mounted."""
         table = self.query_one("#transactions_table", DataTable)
         table.cursor_type = "row"
         table.add_columns("Date", "Description", "Payee", "Account", "Amount")
         self.load_transactions()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle period button presses."""
         button_id = event.button.id
-
-        # Update button styles
-        for btn in self.query("#period-buttons Button"):
-            btn.variant = "default"
-        event.button.variant = "primary"
-
-        # Set date range based on button
-        today = date.today()
-
-        if button_id == "period-all":
-            self.start_date = None
-            self.end_date = None
-            self._current_period = "all"
-        elif button_id == "period-this-month":
-            self.start_date = today.replace(day=1)
-            self.end_date = today
-            self._current_period = "this-month"
-        elif button_id == "period-last-month":
-            first_of_current = today.replace(day=1)
-            self.end_date = first_of_current - timedelta(days=1)
-            self.start_date = self.end_date.replace(day=1)
-            self._current_period = "last-month"
-        elif button_id == "period-this-year":
-            self.start_date = today.replace(month=1, day=1)
-            self.end_date = today
-            self._current_period = "this-year"
-
-        self.load_transactions()
+        period_lookup = {
+            "period-all": "all",
+            "period-this-month": "this-month",
+            "period-last-month": "last-month",
+            "period-this-year": "this-year",
+        }
+        period = period_lookup.get(button_id)
+        if period:
+            self._set_period(period)
 
     def load_transactions(self) -> None:
         """Load transactions from database and display in table."""
         table = self.query_one("#transactions_table", DataTable)
         table.clear()
+        self._entry_ids = []
 
         try:
             with self.db_manager.get_session() as session:
                 if self.search_query:
-                    # Use search functionality
                     report_service = ReportService(session)
                     entries = report_service.search_transactions(
                         self.search_query,
@@ -129,11 +97,9 @@ class TransactionListScreen(Screen):
                         limit=100,
                     )
                 elif self.start_date and self.end_date:
-                    # Use date range filter
                     repo = EntryRepository(session)
                     entries = repo.get_by_date_range(self.start_date, self.end_date)
                 else:
-                    # Load all recent
                     repo = EntryRepository(session)
                     entries = repo.get_recent(limit=100)
 
@@ -143,7 +109,6 @@ class TransactionListScreen(Screen):
                     entry_full = entry_repo.get_with_postings(entry.id)
                     if entry_full and entry_full.postings:
                         # Find the primary account and amount for display
-                        # Prefer expense/income accounts for display
                         primary_posting = None
                         for posting in entry_full.postings:
                             if posting.account.type in ("expense", "income"):
@@ -156,13 +121,12 @@ class TransactionListScreen(Screen):
                         # Format amount
                         amount = abs(primary_posting.amount)
                         if primary_posting.account.type == "expense":
-                            amount_str = f"-${amount:,.2f}"
+                            amount_str = f"-AED {amount:,.2f}"
                         elif primary_posting.account.type == "income":
-                            amount_str = f"+${amount:,.2f}"
+                            amount_str = f"+AED {amount:,.2f}"
                         else:
-                            amount_str = f"${amount:,.2f}"
+                            amount_str = f"AED {amount:,.2f}"
 
-                        # Show leaf account name
                         account_display = primary_posting.account.leaf_name
 
                         table.add_row(
@@ -172,6 +136,7 @@ class TransactionListScreen(Screen):
                             account_display,
                             amount_str,
                         )
+                        self._entry_ids.append(entry.id)
 
                 count = len(entries)
                 if self.search_query:
@@ -182,39 +147,58 @@ class TransactionListScreen(Screen):
         except Exception as e:
             self.notify(f"Error loading transactions: {e}", severity="error")
 
-    # Vim-style navigation actions
-    def action_cursor_down(self) -> None:
-        """Move cursor down."""
-        table = self.query_one("#transactions_table", DataTable)
-        table.action_cursor_down()
+    def refresh_data(self) -> None:
+        """Refresh transaction data (common screen interface)."""
+        self.load_transactions()
 
-    def action_cursor_up(self) -> None:
-        """Move cursor up."""
+    def _get_selected_entry_id(self) -> int | None:
+        """Get the entry ID for the currently selected row."""
         table = self.query_one("#transactions_table", DataTable)
-        table.action_cursor_up()
+        if table.cursor_row is not None and 0 <= table.cursor_row < len(self._entry_ids):
+            return self._entry_ids[table.cursor_row]
+        return None
 
-    def action_cursor_top(self) -> None:
-        """Move cursor to top."""
-        table = self.query_one("#transactions_table", DataTable)
-        table.move_cursor(row=0)
+    def _set_period(self, period_name: str) -> None:
+        """Set the active period filter and reload transactions."""
+        today = date.today()
 
-    def action_cursor_bottom(self) -> None:
-        """Move cursor to bottom."""
-        table = self.query_one("#transactions_table", DataTable)
-        table.move_cursor(row=table.row_count - 1)
+        period_map = {
+            "all": ("period-all", None, None),
+            "this-month": ("period-this-month", today.replace(day=1), today),
+            "last-month": ("period-last-month", None, None),
+            "this-year": ("period-this-year", today.replace(month=1, day=1), today),
+        }
 
-    def action_page_down(self) -> None:
-        """Page down."""
-        table = self.query_one("#transactions_table", DataTable)
-        table.action_page_down()
+        button_id, start, end = period_map[period_name]
 
-    def action_page_up(self) -> None:
-        """Page up."""
-        table = self.query_one("#transactions_table", DataTable)
-        table.action_page_up()
+        if period_name == "last-month":
+            first_of_current = today.replace(day=1)
+            end = first_of_current - timedelta(days=1)
+            start = end.replace(day=1)
+
+        self.start_date = start
+        self.end_date = end
+        self._current_period = period_name
+
+        for btn in self.query("#period-buttons Button"):
+            btn.variant = "default"
+        self.query_one(f"#{button_id}", Button).variant = "primary"
+
+        self.load_transactions()
+
+    def action_period_all(self) -> None:
+        self._set_period("all")
+
+    def action_period_this_month(self) -> None:
+        self._set_period("this-month")
+
+    def action_period_last_month(self) -> None:
+        self._set_period("last-month")
+
+    def action_period_this_year(self) -> None:
+        self._set_period("this-year")
 
     def action_new_transaction(self) -> None:
-        """Show transaction creation form."""
         from ledger.tui.widgets.transaction_form import TransactionFormModal
 
         def on_transaction_saved(result):
@@ -224,6 +208,58 @@ class TransactionListScreen(Screen):
 
         self.app.push_screen(TransactionFormModal(self.db_manager), on_transaction_saved)
 
-    def action_search(self) -> None:
-        """Open search dialog."""
-        self.app.action_search()
+    def action_edit_transaction(self) -> None:
+        """Edit the selected transaction."""
+        entry_id = self._get_selected_entry_id()
+        if entry_id is None:
+            self.notify("No transaction selected", severity="warning")
+            return
+
+        from ledger.tui.widgets.transaction_form import TransactionFormModal
+
+        def on_transaction_saved(result):
+            if result:
+                self.load_transactions()
+                self.notify("Transaction updated successfully!")
+
+        self.app.push_screen(
+            TransactionFormModal(self.db_manager, entry_id=entry_id),
+            on_transaction_saved,
+        )
+
+    def action_view_transaction(self) -> None:
+        """View details of the selected transaction."""
+        entry_id = self._get_selected_entry_id()
+        if entry_id is None:
+            self.notify("No transaction selected", severity="warning")
+            return
+
+        from ledger.tui.widgets.transaction_detail import TransactionDetailModal
+        self.app.push_screen(TransactionDetailModal(self.db_manager, entry_id))
+
+    def action_delete_transaction(self) -> None:
+        """Delete the selected transaction with confirmation."""
+        entry_id = self._get_selected_entry_id()
+        if entry_id is None:
+            self.notify("No transaction selected", severity="warning")
+            return
+
+        from ledger.tui.widgets.confirm_dialog import ConfirmDialog
+
+        def on_confirmed(confirmed: bool) -> None:
+            if confirmed:
+                try:
+                    with self.db_manager.get_session() as session:
+                        from ledger.services.transaction_service import TransactionService
+                        service = TransactionService(session)
+                        service.delete_transaction(entry_id)
+                    self.load_transactions()
+                    self.notify("Transaction deleted", severity="information")
+                except Exception as e:
+                    self.notify(f"Error deleting transaction: {e}", severity="error")
+
+        self.app.push_screen(
+            ConfirmDialog("Delete this transaction? This cannot be undone."),
+            on_confirmed,
+        )
+

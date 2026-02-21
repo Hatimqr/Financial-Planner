@@ -1,6 +1,7 @@
 """Search modal for searching transactions."""
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Static
@@ -8,6 +9,13 @@ from textual.widgets import Button, Input, Static
 
 class SearchModal(ModalScreen):
     """Modal dialog for searching transactions."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
     def compose(self) -> ComposeResult:
         yield Container(

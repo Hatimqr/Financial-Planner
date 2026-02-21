@@ -1,186 +1,229 @@
 # Ledger TUI
 
-A fast, modern, keyboard-driven terminal application for managing personal finances using double-entry bookkeeping.
+A fast, keyboard-driven terminal app for managing personal finances with double-entry bookkeeping.
 
-**Think: Claude Code meets accounting.**
+Your money, your machine, no cloud required.
 
-## Features
+---
 
-### Core Features (v0.2)
+## At a Glance
 
-- **Double-Entry Accounting**: Every transaction touches two accounts. The books always balance.
-- **Local-First**: All data lives in a single SQLite file. No cloud, no accounts, no sync complexity.
-- **Keyboard-Driven**: Mouse optional. Vim-style navigation. Command palette for discoverability.
-- **Instant Startup**: Target <100ms cold start.
-- **Terminal-Native**: Dense, information-rich displays with minimal color.
+- **Double-entry accounting** — every transaction balances, just like a real ledger
+- **5 screens** — Dashboard, Accounts, Transactions, Reports, Budgets
+- **Vim-style navigation** — `j/k`, `gg/G`, `/` to search, `Ctrl+P` command palette
+- **CSV import** — pull in bank statements with duplicate detection
+- **CLI quick-add** — add transactions without opening the TUI
+- **SQLite** — single file database, zero configuration
+- **69 tests** — business logic thoroughly covered
 
-### Screens
-
-| Screen       | Key   | Description                                                             |
-| ------------ | ----- | ----------------------------------------------------------------------- |
-| Dashboard    | `d` | Net worth, income/expenses KPIs, recent transactions, expense breakdown |
-| Accounts     | `a` | Hierarchical account tree with balances                                 |
-| Transactions | `t` | Transaction list with date filtering and search                         |
-| Reports      | `r` | Income Statement and Balance Sheet                                      |
-| Budgets      | `b` | Budget tracking with visual progress bars                               |
-
-### Keyboard Navigation
-
-**Global:**
-
-- `Ctrl+P` — Command palette (fuzzy search all commands)
-- `d/a/t/r/b` — Quick navigation to screens
-- `/` — Search transactions
-- `?` — Help overlay
-- `q` — Quit
-
-**Vim-style (in lists):**
-
-- `j/k` — Move down/up
-- `gg/G` — Jump to top/bottom
-- `Ctrl+D/U` — Page down/up
-
-**Actions:**
-
-- `n` — New (transaction/account/budget)
-- `f5` — Refresh current view
-- `Escape` — Back/Cancel
+---
 
 ## Quick Start
 
-### Prerequisites
-
-- Python 3.11 or higher
-- Conda (recommended) or pip
-
-### Installation
-
 ```bash
-# Clone the repository
+# Clone and set up
 git clone <repository-url>
 cd financial-planning
-
-# Create conda environment (recommended)
-conda create -n fin_man python=3.11
-conda activate fin_man
-
-# Install dependencies
 pip install -e ".[dev]"
 
-# Initialize database
+# Initialize the database
 alembic upgrade head
 
-# (Optional) Seed with sample data
-python scripts/seed_data.py
-```
+# (Optional) Load sample data to explore
+python -m ledger seed
 
-### Usage
-
-```bash
-# Launch the TUI
-make run
-# or
+# Launch
 python -m ledger run
-
-# Export data
-python -m ledger export csv -o transactions.csv
-python -m ledger export json -o accounts.json
 ```
 
-## Screenshots
+---
+
+## Screens
+
+### Dashboard (`d`)
+
+Your financial snapshot at a glance:
+- **Net worth** — total assets minus liabilities
+- **Income & expenses** — this month's numbers with savings rate
+- **Recent transactions** — last 10 entries
+- **Expense breakdown** — top spending categories
+
+### Accounts (`a`)
+
+Hierarchical view of all your accounts with live balances. Accounts are organized in a tree using `:` delimiters:
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│ LEDGER TUI                                    Net Worth: $45,230.00 │
-├─────────────────────────────────────────────────────────────────────┤
-│  [Dashboard]  Accounts  Transactions  Reports  Budgets              │
-│                                                                     │
-│  ┌─ This Month ──────────────────────────────────────────────────┐  │
-│  │   Income      $6,500.00   ████████████████████████████████░░  │  │
-│  │   Expenses    $4,230.00   █████████████████████░░░░░░░░░░░░░  │  │
-│  │   Savings     $2,270.00   (34.9% rate)                        │  │
-│  └───────────────────────────────────────────────────────────────┘  │
-│                                                                     │
-│  ┌─ Recent Transactions ─────────────────────────────────────────┐  │
-│  │  Dec 20  Whole Foods          Expenses:Food:Groceries  -89.34 │  │
-│  │  Dec 19  Transfer             Assets:Bank:Savings     +500.00 │  │
-│  │  Dec 18  Electric Company     Expenses:Housing:Utils   -67.50 │  │
-│  └───────────────────────────────────────────────────────────────┘  │
-├─────────────────────────────────────────────────────────────────────┤
-│ n: new  /: search  ?: help  Ctrl+P: commands  q: quit               │
-└─────────────────────────────────────────────────────────────────────┘
+Assets
+  Bank
+    Checking          $5,230.00
+    Savings          $12,000.00
+Expenses
+  Food
+    Groceries          $450.00
+    Restaurants        $180.00
 ```
 
-## Development
+### Transactions (`t`)
 
-### Project Structure
+Full transaction list with:
+- **Date filters** — All, This Month, Last Month, This Year
+- **Search** — find transactions by description
+- **Detail view** — press `Enter` to see all postings
+- **Edit** — press `e` to modify any transaction
+- **Delete** — press `Delete` with confirmation dialog
 
-```
-financial-planning/
-├── src/ledger/
-│   ├── cli/              # CLI commands
-│   ├── db/               # Database models and migrations
-│   ├── repositories/     # Data access layer
-│   ├── services/         # Business logic
-│   └── tui/              # Textual UI
-│       ├── screens/      # Main screens
-│       └── widgets/      # Reusable widgets
-├── tests/
-│   ├── unit/             # Unit tests
-│   └── integration/      # Integration tests
-├── docs/                 # Documentation
-├── scripts/              # Utility scripts
-└── data/                 # SQLite database
-```
+### Reports (`r`)
 
-### Commands
+Two financial reports with configurable time periods:
+
+- **Income Statement** — income vs. expenses with net income
+- **Balance Sheet** — assets, liabilities, and net worth
+
+### Budgets (`b`)
+
+Visual budget tracking with progress bars. Set monthly, quarterly, or yearly budgets per expense category and see how you're tracking.
+
+---
+
+## Keyboard Shortcuts
+
+### Navigation
+
+| Key | Action |
+|-----|--------|
+| `d` | Dashboard |
+| `a` | Accounts |
+| `t` | Transactions |
+| `r` | Reports |
+| `b` | Budgets |
+| `Ctrl+P` | Command palette (fuzzy search) |
+| `?` | Help overlay |
+| `q` | Quit |
+
+### Vim-Style Movement
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Down / Up |
+| `gg` / `G` | Top / Bottom |
+| `Ctrl+D` / `Ctrl+U` | Page down / Page up |
+
+### Transaction Actions
+
+| Key | Action |
+|-----|--------|
+| `n` | New transaction |
+| `Enter` | View transaction details |
+| `e` | Edit selected transaction |
+| `Delete` | Delete (with confirmation) |
+| `/` | Search transactions |
+
+---
+
+## CLI Commands
+
+You don't have to open the TUI for everything. Common operations work directly from the terminal.
+
+### Quick-Add a Transaction
 
 ```bash
-# Run tests
-make test
-# or: pytest tests/ -v
+# Basic: description, amount, from account, to account
+ledger add "Coffee" 5.50 --from checking --to food
 
-# Run linter
-ruff check src/ledger
+# With date and payee
+ledger add "Groceries" 85.20 -f checking -t groceries -d 2025-01-15 -p "Whole Foods"
 
-# Database migrations
-alembic upgrade head      # Apply migrations
-alembic revision -m "..."  # Create new migration
+# Income
+ledger add "Salary" 3000 --from salary --to checking
 ```
 
-### Architecture
+Account names are fuzzy-matched — `checking` matches `Assets:Bank:Checking`.
 
-Layered architecture with clear separation of concerns:
+### Import Bank Statements
 
-```
-TUI/CLI (presentation) → Services (business logic) → Repositories (data access) → Models (ORM)
-```
+```bash
+# Import a CSV file
+ledger import statement.csv --from checking --to groceries
 
-See [docs/architecture.md](docs/architecture.md) for detailed design.
+# Use a bank-specific format
+ledger import chase_statement.csv -f checking -t groceries --format chase
 
-## Double-Entry Accounting
-
-### The Fundamental Equation
-
-```
-Assets + Expenses = Liabilities + Equity + Income
+# Supported formats: generic, chase, bofa
 ```
 
-Every transaction is a journal entry with postings that must sum to zero.
+The import process:
+1. Parses the CSV according to the format preset
+2. Detects duplicates (same date + amount + description)
+3. Shows a preview of what will be imported
+4. Imports valid, non-duplicate transactions
+
+### Export Data
+
+```bash
+# Export transactions to CSV
+ledger export csv -o transactions.csv
+
+# Export accounts to JSON
+ledger export json -o accounts.json -t accounts
+```
+
+### Other Commands
+
+```bash
+ledger run        # Launch the TUI
+ledger init       # Initialize database with sample accounts
+ledger seed       # Add sample transactions
+```
+
+---
+
+## CSV Import (TUI)
+
+You can also import CSVs from within the TUI using the command palette (`Ctrl+P` then type "Import"):
+
+1. Enter the CSV file path
+2. Select the bank format preset (Generic, Chase, Bank of America)
+3. Choose your source account (e.g., your checking account)
+4. Choose a default target account for uncategorized transactions
+5. Click "Preview" to see what will be imported
+6. Review the preview — duplicates and errors are flagged
+7. Click "Import" to commit
+
+---
+
+## How Double-Entry Works
+
+Every transaction has two sides that balance to zero:
+
+```
+Buying groceries for $50:
+  Assets:Bank:Checking     -$50.00  (money leaves your bank)
+  Expenses:Food:Groceries  +$50.00  (expense is recorded)
+                           --------
+  Net:                       $0.00  (always balanced)
+
+Receiving salary of $3,000:
+  Income:Salary            -$3,000  (income source)
+  Assets:Bank:Checking     +$3,000  (money arrives)
+                           --------
+  Net:                       $0.00
+```
+
+This means your books always balance. The system enforces this — you can't save an unbalanced transaction.
 
 ### Account Types
 
-| Type      | Normal Balance | Examples                         |
-| --------- | -------------- | -------------------------------- |
-| Asset     | Debit (+)      | Bank accounts, investments, cash |
-| Liability | Credit (+)     | Credit cards, loans              |
-| Equity    | Credit (+)     | Opening balances                 |
-| Income    | Credit (+)     | Salary, dividends, interest      |
-| Expense   | Debit (+)      | Food, rent, utilities            |
+| Type | What It Tracks | Examples |
+|------|---------------|----------|
+| **Asset** | Things you own | Bank accounts, cash, investments |
+| **Liability** | Things you owe | Credit cards, loans |
+| **Income** | Money coming in | Salary, dividends, interest |
+| **Expense** | Money going out | Food, rent, utilities |
+| **Equity** | Net worth adjustments | Opening balances |
 
 ### Account Hierarchy
 
-Accounts use `:` as delimiter for hierarchy:
+Accounts are organized in a tree using `:` as a separator:
 
 ```
 Assets:Bank:Chase:Checking
@@ -188,27 +231,78 @@ Expenses:Food:Groceries
 Income:Salary
 ```
 
+Parent accounts (like `Assets:Bank`) are automatically created as placeholders when you create child accounts.
+
+---
+
 ## Tech Stack
 
-| Component     | Technology        |
-| ------------- | ----------------- |
-| Language      | Python 3.11+      |
-| TUI Framework | Textual 6.x       |
-| Database      | SQLite (WAL mode) |
-| ORM           | SQLAlchemy 2.0    |
-| Migrations    | Alembic           |
-| Testing       | pytest            |
+| Component | Technology |
+|-----------|------------|
+| Language | Python 3.11+ |
+| TUI | [Textual](https://textual.textualize.io/) |
+| Database | SQLite (WAL mode) |
+| ORM | SQLAlchemy 2.0 |
+| Migrations | Alembic |
+| CLI | Click |
+| Testing | pytest (69 tests) |
+
+---
+
+## Development
+
+### Prerequisites
+
+- Python 3.11 or higher
+- pip (or conda for environment management)
+
+### Setup
+
+```bash
+# With conda (recommended)
+conda create -n fin_man python=3.11
+conda activate fin_man
+pip install -e ".[dev]"
+alembic upgrade head
+
+# Run tests
+pytest tests/ -v
+
+# Lint
+ruff check src/ledger
+```
+
+### Project Structure
+
+```
+src/ledger/
+├── cli/           # CLI commands
+├── db/            # Models, migrations, connection
+├── repositories/  # Data access layer
+├── services/      # Business logic (6 services)
+└── tui/           # Terminal UI (5 screens, 8 widgets)
+```
+
+Architecture: `TUI/CLI -> Services -> Repositories -> Database`
+
+See [docs/architecture.md](docs/architecture.md) for details.
+
+---
 
 ## Roadmap
 
-See [docs/future-features.md](docs/future-features.md) for planned features:
+See [docs/future-features.md](docs/future-features.md) for the full list.
 
-- **v0.3 (Advanced)**: CSV import, recurring transactions, multi-currency
-- **v1.0 (Power User)**: Auto-categorization, CLI scripting, plain-text export
+**Coming next:**
+- Recurring transactions (auto-generate rent, salary, subscriptions)
+- Auto-categorization (rules to categorize imports automatically)
+- Transaction templates (save common entries for reuse)
+
+---
 
 ## References
 
 - [Textual Documentation](https://textual.textualize.io/)
 - [Double-Entry Bookkeeping](https://en.wikipedia.org/wiki/Double-entry_bookkeeping)
-- [Ledger CLI](https://www.ledger-cli.org/)
-- [Beancount](https://beancount.github.io/)
+- [Ledger CLI](https://www.ledger-cli.org/) — Inspiration
+- [Beancount](https://beancount.github.io/) — Python plain-text accounting

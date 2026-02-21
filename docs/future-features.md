@@ -1,42 +1,20 @@
 # Future Features
 
-This document outlines planned features for Ledger TUI beyond the current v0.2 release.
+This document outlines planned features for Ledger TUI beyond the current v0.3 release.
+
+**Already implemented in v0.3:**
+- CSV import with preview, duplicate detection, and bank presets (generic, Chase, BofA)
+- CLI quick-add (`ledger add`) and CLI import (`ledger import`)
+- Transaction editing and detail view
+- Help overlay, delete confirmation, screen navigation fix
 
 ---
 
-## Version 0.3 — Advanced Features
+## Version 0.4 — Advanced Features
 
-Target: Data import/export, recurring transactions, and enhanced functionality.
+Target: Recurring transactions, templates, and enhanced functionality.
 
-### 1. CSV Import (Bank Statement Parsing)
-
-**Priority**: High
-**Complexity**: Medium
-
-Import transactions from bank CSV exports with intelligent field mapping.
-
-**Features:**
-- Auto-detect common bank CSV formats (Chase, Bank of America, Amex, etc.)
-- Column mapping UI for custom formats
-- Duplicate detection based on date + amount + description
-- Preview imports before committing
-- Save mapping profiles for reuse
-
-**Implementation Notes:**
-- Add `ImportService` with format detection
-- Create `ImportModal` widget for mapping configuration
-- Store import profiles in a new `import_profiles` table
-- Use fuzzy matching for duplicate detection
-
-**Files to Create/Modify:**
-- `src/ledger/services/import_service.py` (new)
-- `src/ledger/tui/widgets/import_modal.py` (new)
-- `src/ledger/db/models.py` (add ImportProfile model)
-- New migration for import_profiles table
-
----
-
-### 2. Recurring Transactions
+### 1. Recurring Transactions
 
 **Priority**: High
 **Complexity**: Medium
@@ -273,18 +251,15 @@ CREATE TABLE entry_tags (
 
 ---
 
-### 5. CLI Commands for Scripting
+### 5. Extended CLI Commands
 
-**Priority**: High
+**Priority**: Medium
 **Complexity**: Medium
 
-Full CLI interface for automation.
+Additional CLI commands beyond the already-implemented `add`, `import`, and `export`.
 
-**Commands:**
+**Remaining commands to implement:**
 ```bash
-# Quick add transaction
-ledger add "Coffee" 5.50 --from checking --to food
-
 # Query balance
 ledger balance Assets:Bank:Chase:Checking
 ledger balance --type asset
@@ -293,17 +268,9 @@ ledger balance --type asset
 ledger report income --period 2024-12
 ledger report balance --as-of 2024-12-31
 
-# Export data
-ledger export csv --output transactions.csv
-ledger export ledger --output journal.ledger
-
-# Import data
-ledger import bank.csv --account Assets:Bank:Chase --format chase
-
 # Database operations
 ledger db backup
 ledger db vacuum
-ledger db migrate
 ```
 
 ---
@@ -351,21 +318,23 @@ Optional database encryption for sensitive data.
 
 ## Implementation Priority Matrix
 
-| Feature | Priority | Complexity | Dependencies |
-|---------|----------|------------|--------------|
-| CSV Import | High | Medium | None |
-| Recurring Transactions | High | Medium | None |
-| Auto-Categorization | High | Medium | CSV Import (optional) |
-| CLI Scripting | High | Medium | None |
-| Transaction Templates | Medium | Low | None |
-| Reconciliation | Medium | Medium | None |
-| Tags | Medium | Medium | None |
-| Multi-Currency | Medium | High | None |
-| Fuzzy Payees | Medium | Medium | None |
-| Plain-Text Export | Medium | Medium | None |
-| Auto-Backup | Medium | Low | None |
-| Investment Tracking | Low | High | Multi-Currency |
-| Encrypted Database | Low | High | None |
+| Feature | Priority | Complexity | Status |
+|---------|----------|------------|--------|
+| CSV Import | High | Medium | Done (v0.3) |
+| CLI Quick-Add + Import | High | Medium | Done (v0.3) |
+| Transaction Edit/Detail | High | Medium | Done (v0.3) |
+| Recurring Transactions | High | Medium | Planned |
+| Auto-Categorization | High | Medium | Planned |
+| Transaction Templates | Medium | Low | Planned |
+| Reconciliation | Medium | Medium | Planned |
+| Tags | Medium | Medium | Planned |
+| Multi-Currency | Medium | High | Planned |
+| Fuzzy Payees | Medium | Medium | Planned |
+| Plain-Text Export | Medium | Medium | Planned |
+| Auto-Backup | Medium | Low | Planned |
+| Extended CLI | Medium | Medium | Planned |
+| Investment Tracking | Low | High | Planned |
+| Encrypted Database | Low | High | Planned |
 
 ---
 

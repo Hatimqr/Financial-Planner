@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, Static
@@ -15,6 +16,13 @@ from ledger.services.budget_service import BudgetService
 
 class BudgetFormModal(ModalScreen):
     """Modal dialog for creating a budget."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
     def __init__(self, db_manager: DatabaseManager):
         super().__init__()

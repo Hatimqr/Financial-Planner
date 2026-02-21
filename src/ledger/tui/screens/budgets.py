@@ -33,10 +33,10 @@ class BudgetProgressWidget(Static):
     def compose(self) -> ComposeResult:
         # Category name and amounts
         remaining = self.budgeted - self.spent
-        status = "OVER" if self.is_over else f"${remaining:,.2f} left"
+        status = "OVER" if self.is_over else f"AED {remaining:,.2f} left"
 
         yield Static(
-            f"{self.category:<30} ${self.spent:>10,.2f} / ${self.budgeted:>10,.2f}  {status}",
+            f"{self.category:<30} AED {self.spent:>10,.2f} / AED {self.budgeted:>10,.2f}  {status}",
             classes="budget-header",
         )
 
@@ -67,7 +67,6 @@ class BudgetsScreen(Screen):
     BINDINGS = [
         Binding("n", "new_budget", "New Budget"),
         Binding("f5", "refresh", "Refresh"),
-        Binding("escape", "app.pop_screen", "Back"),
     ]
 
     def __init__(self, db_manager: DatabaseManager):
@@ -101,7 +100,7 @@ class BudgetsScreen(Screen):
                 if total_budgeted > 0:
                     overall_pct = (total_spent / total_budgeted) * 100
                     summary.update(
-                        f"Total: ${total_spent:,.2f} / ${total_budgeted:,.2f} ({overall_pct:.1f}%)"
+                        f"Total: AED {total_spent:,.2f} / AED {total_budgeted:,.2f} ({overall_pct:.1f}%)"
                     )
                 else:
                     summary.update("No budgets set. Press 'n' to create one.")
@@ -146,7 +145,10 @@ class BudgetsScreen(Screen):
 
         self.app.push_screen(BudgetFormModal(self.db_manager), on_budget_saved)
 
-    def action_refresh(self) -> None:
-        """Refresh budget data."""
+    def refresh_data(self) -> None:
+        """Refresh budget data (common screen interface)."""
         self.load_budgets()
+
+    def action_refresh(self) -> None:
+        self.refresh_data()
         self.notify("Budgets refreshed", severity="information")

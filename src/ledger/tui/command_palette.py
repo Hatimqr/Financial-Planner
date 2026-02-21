@@ -16,6 +16,7 @@ class LedgerCommands(Provider):
         ("New Transaction", "new_transaction", "Create a new transaction"),
         ("New Account", "new_account", "Create a new account"),
         ("New Budget", "new_budget", "Create a new budget"),
+        ("Import CSV", "import_csv", "Import bank statement from CSV file"),
         ("Search Transactions", "search", "Search for transactions"),
         ("Refresh View", "refresh", "Refresh current view"),
         ("Quit Application", "quit", "Exit the application"),
@@ -69,6 +70,8 @@ class LedgerCommands(Provider):
             app.action_new_account()
         elif command == "new_budget":
             app.action_new_budget()
+        elif command == "import_csv":
+            app.action_import_csv()
         elif command == "search":
             app.action_search()
         elif command == "refresh":

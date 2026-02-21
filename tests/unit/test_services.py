@@ -203,6 +203,53 @@ class TestTransactionService:
         transactions = service.get_transactions_by_account(sample_accounts["checking"].id)
         assert len(transactions) >= 1
 
+    def test_update_simple_transaction(self, session, sample_accounts):
+        """Test updating a simple transaction."""
+        service = TransactionService(session)
+
+        entry = service.create_simple_transaction(
+            transaction_date=date.today(),
+            description="Original",
+            from_account_id=sample_accounts["checking"].id,
+            to_account_id=sample_accounts["groceries"].id,
+            amount=Decimal("50.00"),
+            payee="Store",
+        )
+        session.commit()
+
+        updated = service.update_simple_transaction(
+            entry_id=entry.id,
+            transaction_date=date(2025, 6, 15),
+            description="Updated",
+            from_account_id=sample_accounts["checking"].id,
+            to_account_id=sample_accounts["restaurants"].id,
+            amount=Decimal("75.00"),
+            payee="Restaurant",
+            memo="Dinner",
+        )
+        session.commit()
+
+        assert updated.description == "Updated"
+        assert updated.payee == "Restaurant"
+        assert updated.date == date(2025, 6, 15)
+        assert len(updated.postings) == 2
+        amounts = sorted([p.amount for p in updated.postings])
+        assert amounts == [Decimal("-75.00"), Decimal("75.00")]
+
+    def test_update_transaction_not_found(self, session, sample_accounts):
+        """Test updating a non-existent transaction fails."""
+        service = TransactionService(session)
+
+        with pytest.raises(ValueError, match="not found"):
+            service.update_simple_transaction(
+                entry_id=99999,
+                transaction_date=date.today(),
+                description="Test",
+                from_account_id=sample_accounts["checking"].id,
+                to_account_id=sample_accounts["groceries"].id,
+                amount=Decimal("50.00"),
+            )
+
     def test_delete_transaction(self, session, sample_accounts):
         """Test deleting a transaction."""
         service = TransactionService(session)

@@ -286,3 +286,60 @@ TabbedContent {
 VerticalScroll {
     height: 1fr;
 }
+
+/* Confirm dialog */
+.confirm-message {
+    text-align: center;
+    padding: 2 1;
+}
+
+/* Detail modal */
+.detail-modal {
+    width: 80;
+    height: auto;
+    max-height: 80%;
+}
+
+.detail-modal #detail-header {
+    padding: 1 0;
+}
+
+.detail-modal #detail-notes {
+    padding: 1 0;
+    color: $text-muted;
+}
+
+/* Help sidebar */
+HelpSidebar {
+    dock: right;
+    width: 35;
+    border-left: solid $primary;
+    background: $panel;
+    padding: 1;
+}
+
+.help-sidebar-title {
+    text-style: bold;
+    color: $accent;
+    padding-bottom: 1;
+}
+
+HelpSidebar VerticalScroll {
+    height: 1fr;
+}
+
+/* Import modal */
+.import-modal {
+    width: 90;
+    height: 85%;
+}
+
+#preview_summary {
+    padding: 1 0;
+    text-style: bold;
+    color: $accent;
+}
+
+#preview_scroll {
+    height: 1fr;
+}

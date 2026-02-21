@@ -332,11 +332,23 @@ END;
 - [x] Category-based reports (Income Statement, Balance Sheet)
 - [x] Budget tracking with progress bars
 
-### Advanced (v0.3) — PLANNED
+### Polish (v0.3) — COMPLETED
+
+- [x] Screen navigation fix (no more infinite screen stacking)
+- [x] Transaction editing (edit existing entries)
+- [x] Transaction detail view (see all postings)
+- [x] Delete confirmation dialog
+- [x] CSV import (bank statement parsing with preview and duplicate detection)
+- [x] CLI quick-add (`ledger add "Coffee" 5.50 --from checking --to food`)
+- [x] CLI import (`ledger import bank.csv --from checking --to food`)
+- [x] Help overlay (full keybinding reference)
+- [x] Common screen refresh interface
+- [x] Code cleanup (removed stale files, lint fixes)
+
+### Advanced (v0.4) — PLANNED
 
 See [future-features.md](future-features.md) for detailed specifications.
 
-- [ ] CSV import (bank statement parsing)
 - [ ] Recurring transactions
 - [ ] Transaction templates
 - [ ] Multi-currency support
@@ -352,7 +364,6 @@ See [future-features.md](future-features.md) for detailed specifications.
 - [ ] Fuzzy matching for payees
 - [ ] Split transactions (multi-line entries)
 - [ ] Tags and custom fields
-- [ ] CLI commands for scripting (`ledger add`, `ledger report`)
 - [ ] Plain-text export (ledger-cli compatible)
 - [ ] Encrypted database option
 

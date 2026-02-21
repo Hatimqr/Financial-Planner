@@ -2,156 +2,116 @@
 
 ## Overview
 
-Ledger TUI is built on a clean, layered architecture that separates concerns and ensures maintainability. The application follows double-entry accounting principles with database-level enforcement of the fundamental accounting equation.
+Ledger TUI is built on a clean, layered architecture that separates concerns and ensures maintainability. The application follows double-entry accounting principles with service-layer enforcement of the fundamental accounting equation.
 
 ## Architectural Layers
 
 ```
 ┌─────────────────────────────────────────────┐
 │         TUI Layer (Textual)                 │
-│  - Screens (Account List, Transaction List) │
-│  - Widgets (Forms, Modals)                   │
+│  - Screens (Dashboard, Accounts, etc.)      │
+│  - Widgets (Forms, Modals, Overlays)        │
 │  - Styles (CSS)                              │
+├─────────────────────────────────────────────┤
+│         CLI Layer (Click)                    │
+│  - Commands (run, add, import, export)       │
 └─────────────────┬───────────────────────────┘
                   │
 ┌─────────────────▼───────────────────────────┐
 │         Service Layer                        │
-│  - Account Service (business logic)          │
-│  - Transaction Service (validation)          │
-│  - Export Service (data export)              │
+│  - AccountService (hierarchy, balances)      │
+│  - TransactionService (CRUD, validation)     │
+│  - BudgetService (budgets, progress)         │
+│  - ReportService (KPIs, statements)          │
+│  - ImportService (CSV parsing, dedup)        │
+│  - ExportService (CSV/JSON export)           │
 └─────────────────┬───────────────────────────┘
                   │
 ┌─────────────────▼───────────────────────────┐
 │      Repository Layer                        │
-│  - Account Repository (queries)              │
-│  - Entry Repository (queries)                │
-│  - Posting Repository (balance calculations) │
+│  - AccountRepository (queries)               │
+│  - EntryRepository (queries, eager loading)  │
+│  - PostingRepository (balance calculations)  │
 └─────────────────┬───────────────────────────┘
                   │
 ┌─────────────────▼───────────────────────────┐
 │      Database Layer (SQLAlchemy)             │
-│  - Models (Account, Entry, Posting)          │
-│  - Connection Management                     │
+│  - Models (Account, Entry, Posting, Budget)  │
+│  - Connection Management (WAL, StaticPool)   │
 │  - Migrations (Alembic)                      │
 └──────────────────────────────────────────────┘
 ```
 
 ## Key Design Decisions
 
-### 1. Database Trigger for Balance Enforcement
+### 1. Service-Layer Balance Validation
 
-**Decision**: Use SQLite trigger to enforce double-entry balance constraint.
+**Decision**: Validate double-entry balance in the service layer, not via database triggers.
 
 **Rationale**:
-- **Database-level guarantee**: Prevents data corruption at the source
-- **Impossible to bypass**: Even direct SQL manipulation cannot violate the constraint
-- **Clear error messages**: Violations are caught immediately at insertion point
+- Database triggers fire after each posting insert, causing false positives when inserting multiple postings for a single entry
+- Service-layer validation allows pre-checking the full transaction before any database writes
+- Easier to test — pure Python validation with clear error messages
+- Portable — not tied to SQLite-specific trigger syntax
 
-**Implementation**:
-```sql
-CREATE TRIGGER check_balance AFTER INSERT ON postings
-BEGIN
-    SELECT CASE
-        WHEN (SELECT SUM(amount) FROM postings WHERE entry_id = NEW.entry_id) != 0
-        THEN RAISE(ABORT, 'Transaction does not balance')
-    END;
-END;
-```
-
-**Trade-offs**:
-- ✅ Pro: Bulletproof data integrity
-- ✅ Pro: Works across all database access methods
-- ⚠️ Con: Harder to test than Python-only validation
-- ⚠️ Con: Database-specific (SQLite)
-
-**Mitigation**: Service layer pre-validates before insert, reducing trigger violations to programming errors only.
+**Implementation**: `TransactionService` validates that all postings sum to zero before committing. `PostingRepository.validate_entry_balance()` provides a secondary check after flush.
 
 ### 2. Repository Pattern
 
 **Decision**: Implement repository pattern for all data access.
-
-**Rationale**:
-- **Separation of concerns**: Data access logic separated from business logic
-- **Testability**: Services can be tested with mocked repositories
-- **Flexibility**: Can swap ORM implementations if needed
-- **Centralized queries**: All database queries in one place
 
 **Structure**:
 ```
 BaseRepository<T>
 ├── create(kwargs) -> T
 ├── get_by_id(id) -> T?
-├── get_all() -> List[T]
+├── get_all() -> list[T]
 ├── update(instance, kwargs) -> T
 └── delete(instance) -> None
 
 Specialized Repositories:
-├── AccountRepository (get_by_name, get_active_accounts, get_children)
-├── EntryRepository (get_with_postings, get_by_date_range)
+├── AccountRepository (get_by_name, get_active_accounts, search_by_prefix)
+├── EntryRepository (get_with_postings, get_by_date_range, get_by_account)
 └── PostingRepository (get_account_balance, validate_entry_balance)
 ```
 
-### 3. Service Layer for Business Logic
+### 3. Screen Navigation
 
-**Decision**: All business logic and validation in service layer.
+**Decision**: Use pop-all-then-push pattern for main screen navigation.
 
-**Rationale**:
-- **Single responsibility**: Repositories handle data access, services handle business rules
-- **Validation before DB**: Catch errors before database constraints
-- **Reusability**: Services can be used by TUI, CLI, or future API
+**Rationale**: Textual's `push_screen` stacks screens on a stack. Navigating between screens repeatedly would leak memory and build up an infinite stack. The `_switch_main_screen()` method pops all screens back to the base, then pushes the new screen. Modals (forms, dialogs) still use `push_screen` as they are temporary overlays.
 
-**Example**: AccountService auto-creates parent accounts as placeholders
+### 4. Common Screen Interface
 
-```python
-def create_account(name, account_type, ...):
-    # Validate type
-    if account_type not in VALID_TYPES:
-        raise ValueError(...)
+**Decision**: All screens implement a `refresh_data()` method.
 
-    # Check duplicates
-    if self.account_repo.get_by_name(name):
-        raise ValueError(...)
+**Rationale**: The app needs to refresh the current screen after actions like creating a transaction. Instead of `hasattr` chains checking for different method names, all screens expose a single `refresh_data()` method that reloads their data.
 
-    # Auto-create parents
-    if ":" in name:
-        parent_path = get_parent(name)
-        if not exists(parent_path):
-            self.create_account(parent_path, ...)  # Recursive
-
-    return self.account_repo.create(...)
-```
-
-### 4. Textual for TUI
-
-**Decision**: Use Textual framework for terminal UI.
-
-**Rationale**:
-- **Modern**: Async-first, CSS-like styling
-- **Productive**: Rich widget library, reactive bindings
-- **Cross-platform**: Works on macOS, Linux, Windows
-- **Maintainable**: Declarative UI with clear separation
+### 5. Textual for TUI
 
 **Structure**:
 ```
 LedgerApp (main app)
 ├── Screens
-│   ├── AccountListScreen (DataTable + bindings)
-│   └── TransactionListScreen (DataTable + bindings)
+│   ├── DashboardScreen (KPIs, recent transactions, expense breakdown)
+│   ├── AccountListScreen (hierarchical tree with balances)
+│   ├── TransactionListScreen (filterable, sortable list)
+│   ├── ReportsScreen (income statement, balance sheet)
+│   └── BudgetsScreen (progress bars, budget tracking)
 ├── Widgets
-│   ├── AccountFormModal (ModalScreen with form)
-│   └── TransactionFormModal (ModalScreen with form)
+│   ├── TransactionFormModal (create/edit transactions)
+│   ├── TransactionDetailModal (full posting detail view)
+│   ├── AccountFormModal (create accounts)
+│   ├── BudgetFormModal (create budgets)
+│   ├── ImportModal (CSV import with preview)
+│   ├── ConfirmDialog (delete confirmation)
+│   ├── HelpOverlay (keybinding reference)
+│   ├── SearchModal (transaction search)
+│   └── CommandPalette (fuzzy command search)
 └── styles.css (Textual CSS)
 ```
 
-### 5. SQLite with WAL Mode
-
-**Decision**: SQLite with Write-Ahead Logging (WAL) mode.
-
-**Rationale**:
-- **Better concurrency**: Readers don't block writers
-- **Faster writes**: Appends to WAL file instead of rewriting main DB
-- **Crash recovery**: Atomic commits
-- **Standard practice**: Modern SQLite applications use WAL
+### 6. SQLite with WAL Mode
 
 **Configuration**:
 ```python
@@ -163,25 +123,16 @@ def set_sqlite_pragma(dbapi_conn, connection_record):
     cursor.close()
 ```
 
-### 6. Click for CLI
-
-**Decision**: Use Click framework for command-line interface.
-
-**Rationale**:
-- **Industry standard**: Used by Flask, Black, Pip
-- **Easy to use**: Decorators for commands and options
-- **Good UX**: Automatic help generation, color output
+### 7. Click for CLI
 
 **Commands**:
-```python
-@cli.command()
-def run():
-    """Launch TUI"""
-
-@cli.command()
-@click.argument("format", type=click.Choice(["csv", "json"]))
-def export(format, output):
-    """Export data"""
+```bash
+ledger run                                    # Launch TUI
+ledger add "Coffee" 5.50 -f checking -t food  # Quick-add transaction
+ledger import bank.csv -f checking -t food    # Import CSV
+ledger export csv -o transactions.csv         # Export data
+ledger init                                   # Initialize DB
+ledger seed                                   # Add sample data
 ```
 
 ## Data Flow
@@ -189,123 +140,80 @@ def export(format, output):
 ### Creating a Transaction
 
 ```
-User Input (TUI Form)
+User Input (TUI Form or CLI)
     ↓
-TransactionFormModal validates input
+TransactionFormModal / CLI validates input
     ↓
 TransactionService.create_simple_transaction()
     ├── Validates amount > 0
     ├── Checks accounts exist (via AccountRepository)
+    ├── Checks accounts are different
     ├── Creates Entry (via EntryRepository)
     ├── Creates Postings (via PostingRepository)
-    └── session.flush() ← Database trigger validates balance
+    ├── session.flush()
+    └── PostingRepository.validate_entry_balance() — secondary check
     ↓
-Success → Dismiss modal → Refresh transaction list
+Success → Dismiss modal → Refresh screen
 ```
 
-### Balance Calculation
+### CSV Import Flow
 
 ```
-AccountService.get_account_balance(account_id)
+User provides CSV file + column mapping + account selection
     ↓
-PostingRepository.get_account_balance(account_id)
+ImportService.preview_csv()
+    ├── Parse each row according to ColumnMapping
+    ├── Check for duplicates (date + amount + description)
+    └── Return ImportPreview with statistics
     ↓
-SELECT SUM(amount) FROM postings WHERE account_id = ?
+User reviews preview → clicks Import
     ↓
-Return Decimal balance
+ImportService.import_csv()
+    ├── For each valid, non-duplicate row:
+    │   └── TransactionService.create_simple_transaction()
+    └── Return count of imported transactions
 ```
 
 ## Testing Strategy
 
-### Unit Tests (60% of coverage target)
+### Unit Tests (69 tests, ~1.3s)
 - **Models**: Constraints, relationships, cascading
 - **Repositories**: CRUD operations, specialized queries
 - **Services**: Business logic, validation, edge cases
+- **Import Service**: CSV parsing, duplicate detection, error handling
 
-### Integration Tests (30% of coverage target)
+### Integration Tests
 - **Double-entry enforcement**: Balanced vs. unbalanced transactions
-- **Transaction flows**: End-to-end account creation → transaction → balance
+- **Transaction flows**: Account creation → transaction → balance
 - **Data integrity**: Zero-sum invariant, referential integrity
-
-### Manual Testing (10%)
-- **TUI**: Navigation, forms, error messages
-- **CLI**: All commands with various inputs
-- **Performance**: Startup time, large datasets
 
 ## Performance Considerations
 
 ### Target Metrics
-- **Cold start**: <100ms (target), <200ms (acceptable)
+- **Cold start**: <100ms
 - **Transaction save**: <50ms
 - **Report generation** (1 year): <200ms
 - **Search** (10k transactions): <100ms
 - **Memory usage**: <50MB
 
 ### Optimizations
-
-**Database**:
 - Indexes on `accounts.name`, `entries.date`, `postings.entry_id`, `postings.account_id`
 - WAL mode for better write performance
 - StaticPool for single-threaded CLI/TUI
-
-**ORM**:
 - Eager loading with `joinedload()` to avoid N+1 queries
-- Decimal type for precise money calculations (not float)
-
-**TUI**:
-- Limit initial data loads (e.g., last 100 transactions)
-- Lazy loading for large lists (future enhancement)
-
-## Security Considerations
-
-### Data Protection
-- **Local-only**: No network exposure
-- **File permissions**: Database file respects OS permissions
-- **No encryption (MVP)**: Planned for v1.0 as optional feature
-
-### Input Validation
-- **Service layer**: All inputs validated before database
-- **Type safety**: SQLAlchemy types, Pydantic for future API
-- **SQL injection**: Protected by ORM (no raw SQL except migrations)
-
-## Extension Points (Future)
-
-### v0.2+
-- **Dashboard**: Add `DashboardScreen` with KPIs
-- **Reports**: Add `ReportService` for Income Statement, Balance Sheet
-- **Budgets**: Extend schema with budget tables
-
-### v1.0+
-- **Multi-currency**: Add exchange rate table, currency conversion
-- **API**: Add FastAPI layer on top of services
-- **Sync**: Git-based sync or encrypted cloud storage
-- **Plugins**: Python-based extension system
+- Decimal type for precise money calculations
 
 ## Error Handling
 
 ### Validation Errors (ValueError)
-- Caught in TUI forms
-- Displayed to user with specific message
+- Caught in TUI forms and displayed inline
 - No database changes committed
 
 ### Database Errors (IntegrityError)
-- Balance constraint violations
-- Foreign key violations
-- Unique constraint violations
+- Foreign key violations, unique constraint violations
 - Rolled back automatically by session context manager
 
 ### User Feedback
 - **Success**: Green notification toasts
 - **Errors**: Red notification toasts or inline form errors
-- **Confirmations**: Modal dialogs for destructive actions
-
-## Conclusion
-
-This architecture prioritizes:
-1. **Data integrity** via database constraints
-2. **Maintainability** via clear layer separation
-3. **Testability** via dependency injection and mocks
-4. **Performance** via smart indexing and caching
-5. **Extensibility** via service-oriented design
-
-The double-entry accounting model is enforced at every layer, ensuring books always balance.
+- **Confirmations**: Modal dialogs for destructive actions (delete)

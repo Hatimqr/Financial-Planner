@@ -33,7 +33,6 @@ class DashboardScreen(Screen):
 
     BINDINGS = [
         Binding("f5", "refresh", "Refresh"),
-        Binding("escape", "app.pop_screen", "Back"),
     ]
 
     def __init__(self, db_manager: DatabaseManager):
@@ -210,11 +209,14 @@ class DashboardScreen(Screen):
     def _format_currency(self, amount: Decimal) -> str:
         """Format decimal as currency string."""
         if amount >= 0:
-            return f"${amount:,.2f}"
+            return f"AED {amount:,.2f}"
         else:
-            return f"-${abs(amount):,.2f}"
+            return f"-AED {abs(amount):,.2f}"
+
+    def refresh_data(self) -> None:
+        """Refresh dashboard data (common screen interface)."""
+        self.load_data()
 
     def action_refresh(self) -> None:
-        """Refresh dashboard data."""
-        self.load_data()
+        self.refresh_data()
         self.notify("Dashboard refreshed", severity="information")

@@ -7,7 +7,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, Static, ContentSwitcher
+from textual.widgets import Button, ContentSwitcher, Static
 
 from ledger.db.connection import DatabaseManager
 from ledger.services.report_service import ReportService
@@ -17,10 +17,14 @@ class ReportsScreen(Screen):
     """Screen for viewing financial reports."""
 
     BINDINGS = [
-        Binding("1", "show_income_statement", "Income Statement"),
-        Binding("2", "show_balance_sheet", "Balance Sheet"),
+        # Period filter shortcuts
+        Binding("1", "period_this_month", "This Month", show=False),
+        Binding("2", "period_last_month", "Last Month", show=False),
+        Binding("3", "period_this_year", "This Year", show=False),
+        # Tab switching with arrow keys
+        Binding("left", "prev_tab", "Prev Tab", show=False),
+        Binding("right", "next_tab", "Next Tab", show=False),
         Binding("f5", "refresh", "Refresh"),
-        Binding("escape", "app.pop_screen", "Back"),
     ]
 
     def __init__(self, db_manager: DatabaseManager):
@@ -38,8 +42,8 @@ class ReportsScreen(Screen):
                 id="period-buttons",
             ),
             Horizontal(
-                Button("1: Income Statement", id="tab-income", variant="primary"),
-                Button("2: Balance Sheet", id="tab-balance"),
+                Button("Income Statement", id="tab-income", variant="primary"),
+                Button("Balance Sheet", id="tab-balance"),
                 id="report-tabs-buttons",
             ),
             ContentSwitcher(
@@ -61,18 +65,14 @@ class ReportsScreen(Screen):
 
         # Handle period buttons
         if button_id and button_id.startswith("period-"):
-            for btn in self.query("#period-buttons Button"):
-                btn.variant = "default"
-            event.button.variant = "primary"
-
-            if button_id == "period-this-month":
-                self._current_period = "this-month"
-            elif button_id == "period-last-month":
-                self._current_period = "last-month"
-            elif button_id == "period-this-year":
-                self._current_period = "this-year"
-
-            self.load_reports()
+            period_lookup = {
+                "period-this-month": "this-month",
+                "period-last-month": "last-month",
+                "period-this-year": "this-year",
+            }
+            period = period_lookup.get(button_id)
+            if period:
+                self._set_period(period)
 
         # Handle tab buttons
         elif button_id == "tab-income":
@@ -299,19 +299,50 @@ class ReportsScreen(Screen):
     def _format_currency(self, amount: Decimal) -> str:
         """Format decimal as currency string."""
         if amount >= 0:
-            return f"${amount:,.2f}"
+            return f"AED {amount:,.2f}"
         else:
-            return f"-${abs(amount):,.2f}"
+            return f"-AED {abs(amount):,.2f}"
 
-    def action_show_income_statement(self) -> None:
-        """Switch to income statement tab."""
-        self._switch_to_income()
+    def _set_period(self, period_name: str) -> None:
+        """Set the active period filter and reload reports."""
+        self._current_period = period_name
 
-    def action_show_balance_sheet(self) -> None:
-        """Switch to balance sheet tab."""
-        self._switch_to_balance()
+        period_button_map = {
+            "this-month": "period-this-month",
+            "last-month": "period-last-month",
+            "this-year": "period-this-year",
+        }
+        button_id = period_button_map[period_name]
+
+        for btn in self.query("#period-buttons Button"):
+            btn.variant = "default"
+        self.query_one(f"#{button_id}", Button).variant = "primary"
+
+        self.load_reports()
+
+    def action_period_this_month(self) -> None:
+        self._set_period("this-month")
+
+    def action_period_last_month(self) -> None:
+        self._set_period("last-month")
+
+    def action_period_this_year(self) -> None:
+        self._set_period("this-year")
+
+    def action_prev_tab(self) -> None:
+        """Switch to the previous report tab."""
+        if self._current_tab == "balance":
+            self._switch_to_income()
+
+    def action_next_tab(self) -> None:
+        """Switch to the next report tab."""
+        if self._current_tab == "income":
+            self._switch_to_balance()
+
+    def refresh_data(self) -> None:
+        """Refresh report data (common screen interface)."""
+        self.load_reports()
 
     def action_refresh(self) -> None:
-        """Refresh reports."""
-        self.load_reports()
+        self.refresh_data()
         self.notify("Reports refreshed", severity="information")

@@ -1,6 +1,7 @@
 """Account form modal for creating/editing accounts."""
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, Static
@@ -11,6 +12,13 @@ from ledger.services.account_service import AccountService
 
 class AccountFormModal(ModalScreen):
     """Modal dialog for creating a new account."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
     def __init__(self, db_manager: DatabaseManager):
         """
