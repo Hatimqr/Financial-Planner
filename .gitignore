@@ -64,3 +64,5 @@ logs/
 # ruff
 .ruff_cache/
 
+# bank statements
+data/statements/

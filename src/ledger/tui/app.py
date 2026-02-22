@@ -35,6 +35,7 @@ class LedgerApp(App):
         # Global actions
         Binding("ctrl+slash", "search", "Search", show=False),
         Binding("n", "new_transaction", "New", show=False),
+        Binding("i", "show_import", "Import"),
     ]
 
     def __init__(self, db_manager: DatabaseManager):
@@ -138,6 +139,10 @@ class LedgerApp(App):
                 self._refresh_current_screen()
 
         self.push_screen(ImportModal(self.db_manager), on_done)
+
+    def action_show_import(self) -> None:
+        from ledger.tui.screens.import_review import ImportReviewScreen
+        self._switch_main_screen(ImportReviewScreen(self.db_manager))
 
     def action_help(self) -> None:
         results = self.screen.query("HelpSidebar")

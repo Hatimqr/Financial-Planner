@@ -343,3 +343,66 @@ HelpSidebar VerticalScroll {
 #preview_scroll {
     height: 1fr;
 }
+
+/* Import review screen */
+.import-header-row {
+    height: auto;
+    padding: 1;
+    align: left middle;
+}
+
+#import-file-field {
+    width: 2fr;
+    height: auto;
+    padding-right: 1;
+}
+
+#import-source-field {
+    width: 1fr;
+    height: auto;
+    padding-right: 1;
+}
+
+.import-header-row Button {
+    margin-top: 2;
+}
+
+#import_info {
+    padding: 0 1;
+    color: $accent;
+    text-style: bold;
+}
+
+#import_summary {
+    padding: 1;
+    text-style: bold;
+    color: $accent;
+}
+
+#import-review-container {
+    height: 100%;
+}
+
+#import_review_table {
+    height: 1fr;
+}
+
+.field-error {
+    border: solid $error;
+}
+
+.edit-amount-row {
+    height: auto;
+}
+
+.edit-amount-row Vertical {
+    width: 1fr;
+    height: auto;
+    padding-right: 1;
+}
+
+.import-edit-notes {
+    padding: 1;
+    color: $text-muted;
+    border: solid $primary;
+}

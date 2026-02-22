@@ -6,7 +6,8 @@
       "Bash(wc:*)",
       "Bash(python:*)",
       "Bash(sqlite3:*)",
-      "Bash(ruff check:*)"
+      "Bash(ruff check:*)",
+      "Bash(tail:*)"
     ]
   }
 }
