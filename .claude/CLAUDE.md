@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Ledger TUI** is a terminal-based personal finance tracker built on double-entry accounting principles. It's designed to be local-first, keyboard-driven, and startup-fast (<100ms cold start target).
 
-**Current Version**: v0.3 (MVP Polish — daily-use ready)
+**Current Version**: v0.3 (MVP Polish — daily-use ready; pyproject.toml still says 0.1.0)
 
 ## Tech Stack
 
@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **ORM**: SQLAlchemy 2.0
 - **Migrations**: Alembic
 - **CLI**: Click
-- **Testing**: pytest with coverage (69 tests, ~1.3s)
+- **Testing**: pytest with coverage
 
 ## Project Structure
 
@@ -33,13 +33,16 @@ financial-planning/
 │   │   ├── budget_service.py     # Budget management + progress
 │   │   ├── report_service.py     # KPIs, income statement, balance sheet
 │   │   ├── import_service.py     # CSV import with preview + dedup
+│   │   ├── pdf_import_service.py # PDF statement import (in progress)
+│   │   ├── pdf_import_models.py  # Data models for PDF import
+│   │   ├── seed_demo.py          # Demo data seeding
 │   │   └── export_service.py     # CSV/JSON export
 │   └── tui/              # Textual TUI application
 │       ├── app.py        # Main app, screen navigation, global bindings
 │       ├── command_palette.py # Fuzzy command search provider
 │       ├── styles.css    # Textual CSS
-│       ├── screens/      # 5 main screens (dashboard, accounts, transactions, reports, budgets)
-│       └── widgets/      # Modals and overlays (forms, confirm, detail, help, import)
+│       ├── screens/      # 6 screens (dashboard, accounts, transactions, reports, budgets, import_review)
+│       └── widgets/      # Modals and overlays (forms, confirm, detail, help, import, import_row_edit)
 ├── tests/
 │   ├── unit/             # Unit tests (models, repos, services, import)
 │   └── integration/      # End-to-end flow tests
@@ -104,49 +107,11 @@ alembic upgrade head
 ruff check src/ledger
 ```
 
-## Current Features (v0.3)
-
-### Screens
-- **Dashboard** (`d`): Net worth, income/expenses KPIs, recent transactions, expense breakdown
-- **Accounts** (`a`): Hierarchical account list with balances
-- **Transactions** (`t`): Transaction list with date filtering, search, edit, detail view, delete
-- **Reports** (`r`): Income Statement and Balance Sheet with period selection
-- **Budgets** (`b`): Budget progress with visual progress bars
-
-### Key Bindings
+## Key Bindings
 
 **Global:** `Ctrl+P` commands | `d/a/t/r/b` screens | `/` search | `?` help | `q` quit
-
-**Transaction List:** `Enter` view details | `e` edit | `Delete` delete | `n` new | `j/k` nav
-
-**Vim-style:** `j/k` down/up | `gg/G` top/bottom | `Ctrl+D/U` page
-
-### Services
-
-- **AccountService**: Account CRUD, hierarchy, balance, search, suggestions
-- **TransactionService**: Create, update, delete transactions with double-entry validation
-- **BudgetService**: Budget management and progress tracking
-- **ReportService**: Financial reports, KPIs, transaction search
-- **ImportService**: CSV import with bank presets, preview, duplicate detection
-- **ExportService**: CSV/JSON export
-
-### CLI Commands
-
-- `ledger run` — Launch TUI
-- `ledger add` — Quick-add transaction (`-f`/`-t` for from/to accounts)
-- `ledger import` — Import CSV (supports `--format generic|chase|bofa`)
-- `ledger export` — Export to CSV/JSON
-- `ledger init` — Initialize database
-- `ledger seed` — Add sample data
-
-## Testing
-
-```bash
-pytest tests/ -v                              # All 69 tests
-pytest tests/unit/test_services.py -v         # Service tests
-pytest tests/unit/test_import_service.py -v   # Import tests
-pytest tests/ --cov=src/ledger --cov-report=html  # Coverage report
-```
+**Transactions:** `Enter` details | `e` edit | `Delete` delete | `n` new
+**Vim-style:** `j/k` nav | `gg/G` top/bottom | `Ctrl+D/U` page
 
 ## Validation Rules
 
@@ -156,13 +121,10 @@ pytest tests/ --cov=src/ledger --cov-report=html  # Coverage report
 4. **Amount Precision**: Round to 2 decimal places
 5. **Different Accounts**: Source and destination cannot be the same
 
+## In-Progress Work
+
+- **PDF Import**: `pdf_import_service.py` + `import_review` screen — importing bank PDF statements (uncommitted, actively developed)
+
 ## Future Development
 
-See [docs/future-features.md](docs/future-features.md) for planned features: recurring transactions, auto-categorization, multi-currency, and more.
-
-## References
-
-- [Textual Documentation](https://textual.textualize.io/)
-- [Ledger CLI](https://www.ledger-cli.org/) — Inspiration for plain-text accounting
-- [Beancount](https://beancount.github.io/) — Python-based plain-text accounting
-- [Full Requirements](docs/requirements.md)
+See [docs/future-features.md](docs/future-features.md) for planned features.
