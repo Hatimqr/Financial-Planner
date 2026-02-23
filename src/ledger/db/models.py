@@ -1,6 +1,6 @@
 """SQLAlchemy models for double-entry accounting."""
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import List
 
@@ -82,7 +82,7 @@ class Entry(Base):
     __tablename__ = "entries"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    date: Mapped[datetime] = mapped_column(Date, nullable=False, index=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     payee: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="cleared")
@@ -147,8 +147,8 @@ class Budget(Base):
     )
     period: Mapped[str] = mapped_column(String(20), nullable=False, default="monthly")
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
-    effective_from: Mapped[datetime] = mapped_column(Date, nullable=False)
-    effective_to: Mapped[datetime | None] = mapped_column(Date, nullable=True)
+    effective_from: Mapped[date] = mapped_column(Date, nullable=False)
+    effective_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.utcnow
     )
@@ -164,6 +164,46 @@ class Budget(Base):
 
     def __repr__(self) -> str:
         return f"<Budget(id={self.id}, account_id={self.account_id}, amount={self.amount})>"
+
+
+class TimePeriod(Base):
+    """Custom time period for filtering across all screens."""
+
+    __tablename__ = "time_periods"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    period_type: Mapped[str] = mapped_column(String(20), nullable=False)  # "fixed" or "relative"
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # For fixed periods
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # For fixed periods
+    relative_key: Mapped[str | None] = mapped_column(String(50), nullable=True)  # e.g. "last_7_days"
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "period_type IN ('fixed', 'relative')", name="ck_time_period_type"
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return f"<TimePeriod(id={self.id}, label='{self.label}', type='{self.period_type}')>"
+
+
+class AppSettings(Base):
+    """Single-row app settings table."""
+
+    __tablename__ = "app_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    default_period_key: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="this-month"
+    )
+
+    def __repr__(self) -> str:
+        return f"<AppSettings(default_period_key='{self.default_period_key}')>"
 
 
 # Note: Double-entry balance validation is performed in the service layer

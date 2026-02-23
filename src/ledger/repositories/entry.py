@@ -33,6 +33,20 @@ class EntryRepository(BaseRepository[Entry]):
             .first()
         )
 
+    def get_all_with_postings(self) -> List[Entry]:
+        """
+        Get all entries with postings eagerly loaded.
+
+        Returns:
+            List of all entries with postings and accounts loaded
+        """
+        return (
+            self.session.query(Entry)
+            .options(joinedload(Entry.postings).joinedload(Posting.account))
+            .order_by(Entry.date.desc())
+            .all()
+        )
+
     def get_by_date_range(self, start_date: date, end_date: date) -> List[Entry]:
         """
         Get all entries within a date range.
@@ -66,6 +80,7 @@ class EntryRepository(BaseRepository[Entry]):
             self.session.query(Entry)
             .join(Posting)
             .filter(Posting.account_id == account_id)
+            .distinct()
             .order_by(Entry.date.desc())
         )
 

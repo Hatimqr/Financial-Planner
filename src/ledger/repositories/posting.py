@@ -1,12 +1,13 @@
 """Posting repository for posting queries and balance calculations."""
 
+from datetime import date
 from decimal import Decimal
 from typing import List, Optional
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from ledger.db.models import Posting
+from ledger.db.models import Entry, Posting
 from ledger.repositories.base import BaseRepository
 
 
@@ -16,6 +17,34 @@ class PostingRepository(BaseRepository[Posting]):
     def __init__(self, session: Session):
         """Initialize posting repository."""
         super().__init__(session, Posting)
+
+    def get_balance_for_accounts_in_period(
+        self, account_ids: List[int], start_date: date, end_date: date
+    ) -> Decimal:
+        """
+        Calculate total balance for multiple accounts within a date range.
+
+        Args:
+            account_ids: List of account IDs to sum
+            start_date: Period start date (inclusive)
+            end_date: Period end date (inclusive)
+
+        Returns:
+            Total balance as Decimal
+        """
+        if not account_ids:
+            return Decimal("0")
+        result = (
+            self.session.query(func.sum(Posting.amount))
+            .join(Entry)
+            .filter(
+                Posting.account_id.in_(account_ids),
+                Entry.date >= start_date,
+                Entry.date <= end_date,
+            )
+            .scalar()
+        )
+        return Decimal(str(result)) if result else Decimal("0")
 
     def get_account_balance(self, account_id: int) -> Decimal:
         """
@@ -53,7 +82,9 @@ class PostingRepository(BaseRepository[Posting]):
             .filter_by(entry_id=entry_id)
             .scalar()
         )
-        return Decimal(str(total)) == Decimal("0") if total else True
+        if total is None:
+            return False
+        return Decimal(str(total)) == Decimal("0")
 
     def get_by_entry(self, entry_id: int) -> List[Posting]:
         """
@@ -66,6 +97,55 @@ class PostingRepository(BaseRepository[Posting]):
             List of postings
         """
         return self.session.query(Posting).filter_by(entry_id=entry_id).all()
+
+    def get_balance_before_date(self, account_id: int, before_date: date) -> Decimal:
+        """
+        Calculate balance for an account from all postings before a given date.
+
+        Args:
+            account_id: Account ID
+            before_date: Date (exclusive upper bound)
+
+        Returns:
+            Balance as Decimal (positive = net debit, negative = net credit)
+        """
+        result = (
+            self.session.query(func.sum(Posting.amount))
+            .join(Entry)
+            .filter(
+                Posting.account_id == account_id,
+                Entry.date < before_date,
+            )
+            .scalar()
+        )
+        return Decimal(str(result)) if result else Decimal("0")
+
+    def get_by_account_in_period(
+        self, account_id: int, start_date: date, end_date: date
+    ) -> List[Posting]:
+        """
+        Get all postings for an account within a date range.
+
+        Args:
+            account_id: Account ID
+            start_date: Period start date (inclusive)
+            end_date: Period end date (inclusive)
+
+        Returns:
+            List of postings with entry eagerly loaded, ordered by date
+        """
+        return (
+            self.session.query(Posting)
+            .join(Entry)
+            .filter(
+                Posting.account_id == account_id,
+                Entry.date >= start_date,
+                Entry.date <= end_date,
+            )
+            .options(joinedload(Posting.entry))
+            .order_by(Entry.date)
+            .all()
+        )
 
     def get_by_account(self, account_id: int, limit: Optional[int] = None) -> List[Posting]:
         """
@@ -84,3 +164,29 @@ class PostingRepository(BaseRepository[Posting]):
             query = query.limit(limit)
 
         return query.all()
+
+    def get_daily_totals_for_accounts(
+        self, account_ids: List[int], start_date: date, end_date: date
+    ) -> List[tuple]:
+        """
+        Get daily totals for a set of accounts within a date range.
+
+        Returns:
+            List of (date, Decimal) tuples ordered by date
+        """
+        if not account_ids:
+            return []
+        rows = (
+            self.session.query(Entry.date, func.sum(Posting.amount))
+            .join(Entry)
+            .filter(
+                Posting.account_id.in_(account_ids),
+                Entry.date >= start_date,
+                Entry.date <= end_date,
+            )
+            .group_by(Entry.date)
+            .order_by(Entry.date)
+            .all()
+        )
+        return [(row[0], Decimal(str(row[1]))) for row in rows]
+

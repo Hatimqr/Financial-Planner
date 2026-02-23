@@ -15,10 +15,14 @@ class AccountFormModal(ModalScreen):
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
+        Binding("ctrl+s", "save", "Save", show=False),
     ]
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def action_save(self) -> None:
+        self.save_account()
 
     def __init__(self, db_manager: DatabaseManager):
         """
@@ -34,8 +38,8 @@ class AccountFormModal(ModalScreen):
     def compose(self) -> ComposeResult:
         """Create form widgets."""
         yield Container(
-            Static("📝 Create Account", classes="modal-title"),
-            Static(self.error_message, id="error_display", classes="modal-error"),
+            Static("Create Account", classes="modal-title"),
+            Static(self.error_message, id="error-display", classes="modal-error"),
             Vertical(
                 Label("Account Name (e.g., Assets:Bank:Chase)"),
                 Input(
@@ -66,8 +70,8 @@ class AccountFormModal(ModalScreen):
                 Label("Notes (optional)"),
                 Input(placeholder="Optional notes", id="notes_input", classes="form-field"),
                 Horizontal(
-                    Button("Cancel", variant="default", id="cancel_btn"),
-                    Button("Save", variant="primary", id="save_btn"),
+                    Button("Cancel [Esc]", variant="default", id="cancel_btn"),
+                    Button("Save [^S]", variant="primary", id="save_btn"),
                     classes="button-row",
                 ),
             ),
@@ -81,8 +85,13 @@ class AccountFormModal(ModalScreen):
         elif event.button.id == "save_btn":
             self.save_account()
 
+    def _clear_field_errors(self) -> None:
+        for widget in self.query(".field-error"):
+            widget.remove_class("field-error")
+
     def save_account(self) -> None:
         """Save the account to the database."""
+        self._clear_field_errors()
         name = self.query_one("#name_input", Input).value.strip()
         account_type = self.query_one("#type_select", Select).value
         currency = self.query_one("#currency_input", Input).value.strip() or "USD"
@@ -90,6 +99,7 @@ class AccountFormModal(ModalScreen):
 
         # Validation
         if not name:
+            self.query_one("#name_input").add_class("field-error")
             self.show_error("Account name is required")
             return
 
@@ -112,5 +122,4 @@ class AccountFormModal(ModalScreen):
 
     def show_error(self, message: str) -> None:
         """Display an error message."""
-        error_display = self.query_one("#error_display", Static)
-        error_display.update(message)
+        self.query_one("#error-display", Static).update(message)

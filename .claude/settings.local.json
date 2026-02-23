@@ -7,7 +7,12 @@
       "Bash(python:*)",
       "Bash(sqlite3:*)",
       "Bash(ruff check:*)",
-      "Bash(tail:*)"
+      "Bash(tail:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(conda run:*)"
     ]
+  },
+  "enabledPlugins": {
+    "code-review@claude-plugins-official": true
   }
 }

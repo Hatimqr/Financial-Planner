@@ -1,6 +1,6 @@
 """Report service for generating financial reports and KPIs."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
@@ -69,6 +69,25 @@ class RecentTransaction:
     primary_account: str
     amount: Decimal
     is_expense: bool
+
+
+@dataclass
+class PeriodComparisonPoint:
+    """A single period in a period-over-period comparison."""
+
+    period_label: str  # e.g. "Jan 2026"
+    value: Decimal
+
+
+@dataclass
+class CategoryNode:
+    """A node in a hierarchical category breakdown."""
+
+    name: str  # full account path
+    display_name: str  # leaf name for display
+    amount: Decimal
+    has_children: bool
+    children: List["CategoryNode"] = field(default_factory=list)
 
 
 class ReportService:
@@ -391,8 +410,11 @@ class ReportService:
         for account in equity_accounts:
             balance = self.posting_repo.get_account_balance(account.id)
             if not account.is_placeholder:
-                equity_balances.append((account.name, abs(balance)))
-                total_equity += abs(balance)
+                # Equity has credit-normal balances (negative in this system).
+                # Negate to show as positive when healthy, negative when deficit.
+                display_balance = -balance
+                equity_balances.append((account.name, display_balance))
+                total_equity += display_balance
 
         return {
             "assets": [
@@ -411,6 +433,130 @@ class ReportService:
             "total_equity": total_equity,
             "net_worth": net_worth.net_worth,
         }
+
+    def get_period_comparison(
+        self,
+        account_type: str,
+        periods: List[Tuple[date, date]],
+        parent_path: Optional[str] = None,
+    ) -> List[PeriodComparisonPoint]:
+        """
+        Get totals across multiple periods for comparison.
+
+        Args:
+            account_type: Account type to aggregate
+            periods: List of (start, end) date tuples
+            parent_path: Optional parent path to filter accounts
+
+        Returns:
+            List of PeriodComparisonPoint
+        """
+        accounts = self._get_accounts_for_path(account_type, parent_path)
+        if not accounts:
+            return [PeriodComparisonPoint(period_label=self._period_label(s, e), value=Decimal("0")) for s, e in periods]
+
+        account_ids = [a.id for a in accounts]
+        results = []
+        for start, end in periods:
+            total = self.posting_repo.get_balance_for_accounts_in_period(
+                account_ids, start, end
+            )
+            label = self._period_label(start, end)
+            results.append(PeriodComparisonPoint(period_label=label, value=abs(total)))
+        return results
+
+    def get_hierarchical_breakdown(
+        self,
+        account_type: str,
+        start_date: date,
+        end_date: date,
+        parent_path: Optional[str] = None,
+    ) -> List[CategoryNode]:
+        """
+        Get hierarchical category breakdown for an account type.
+
+        If parent_path is None, returns top-level categories.
+        If parent_path is given, returns its direct children.
+
+        Returns:
+            List of CategoryNode sorted by amount descending
+        """
+        if parent_path:
+            children = self.account_repo.get_direct_children(parent_path)
+        else:
+            # Get top-level accounts of this type (depth 0 or 1 depending on structure)
+            all_accounts = self.account_repo.get_by_type(account_type)
+            # Find the minimum depth to determine "top level"
+            if not all_accounts:
+                return []
+            min_depth = min(a.depth for a in all_accounts)
+            children = [a for a in all_accounts if a.depth == min_depth]
+
+        nodes = []
+        for account in children:
+            # Sum balance for this account and all descendants
+            subtree = [account] + self.account_repo.get_children(account.name)
+            leaf_ids = [a.id for a in subtree if not a.is_placeholder]
+            if not leaf_ids:
+                continue
+
+            total = self.posting_repo.get_balance_for_accounts_in_period(
+                leaf_ids, start_date, end_date
+            )
+            amount = abs(total)
+            if amount == 0:
+                continue
+
+            has_children = len(self.account_repo.get_direct_children(account.name)) > 0
+            nodes.append(
+                CategoryNode(
+                    name=account.name,
+                    display_name=account.leaf_name,
+                    amount=amount,
+                    has_children=has_children,
+                )
+            )
+
+        nodes.sort(key=lambda n: n.amount, reverse=True)
+        return nodes
+
+    @staticmethod
+    def compute_prior_periods(
+        start_date: date, end_date: date, count: int
+    ) -> List[Tuple[date, date]]:
+        """
+        Compute N prior periods of the same length as (start_date, end_date).
+
+        Returns:
+            List of (start, end) tuples including the current period first
+        """
+        delta = end_date - start_date
+        periods = [(start_date, end_date)]
+        for i in range(1, count + 1):
+            p_end = start_date - timedelta(days=1) - (delta * (i - 1))
+            p_start = p_end - delta
+            periods.append((p_start, p_end))
+        periods.reverse()  # chronological order
+        return periods
+
+    def _get_accounts_for_path(
+        self, account_type: str, parent_path: Optional[str]
+    ) -> List:
+        """Get leaf accounts for a type, optionally filtered by parent path."""
+        if parent_path:
+            subtree = [self.account_repo.get_by_name(parent_path)]
+            subtree = [a for a in subtree if a is not None]
+            subtree += self.account_repo.get_children(parent_path)
+            return [a for a in subtree if not a.is_placeholder and a.type == account_type]
+        else:
+            return self.account_repo.get_leaf_accounts(account_type)
+
+    @staticmethod
+    def _period_label(start: date, end: date) -> str:
+        """Generate a human-readable label for a date range."""
+        if start.month == end.month and start.year == end.year:
+            return start.strftime("%b %Y")
+        return f"{start.strftime('%b %d')}–{end.strftime('%b %d')}"
 
     def search_transactions(
         self,

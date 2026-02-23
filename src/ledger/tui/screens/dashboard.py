@@ -1,15 +1,32 @@
-"""Dashboard screen showing financial KPIs and recent transactions."""
+"""Dashboard screen with chart-driven analytics."""
 
+from datetime import date
 from decimal import Decimal
+from typing import List, Optional
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Grid, Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import DataTable, Static
+from textual.widgets import OptionList, Static
+from textual.widgets.option_list import Option
 
 from ledger.db.connection import DatabaseManager
-from ledger.services.report_service import ReportService
+from ledger.services.budget_service import BudgetService
+from ledger.services.report_service import CategoryNode, ReportService
+from ledger.tui.widgets.app_header import AppHeader
+from ledger.tui.widgets.chart_quadrant import ChartQuadrant
+
+
+MODES = ["breakdown", "comparison"]
+
+# Quadrant definitions: (account_type, title, id)
+QUADRANTS = [
+    ("income", "Income", "q-income"),
+    ("expense", "Expenses", "q-expense"),
+    ("asset", "Assets", "q-asset"),
+    ("liability", "Liabilities", "q-liability"),
+]
 
 
 class KPIWidget(Static):
@@ -29,116 +46,107 @@ class KPIWidget(Static):
 
 
 class DashboardScreen(Screen):
-    """Main dashboard showing financial overview."""
+    """Analytics dashboard with KPI strip and 2x2 chart grid."""
 
     BINDINGS = [
+        Binding("m", "toggle_mode", "Mode", show=True),
+        Binding("+", "more_periods", "+Periods", show=False),
+        Binding("-", "fewer_periods", "-Periods", show=False),
+        Binding("enter", "drill_down", "Drill Down", show=True),
+        Binding("escape", "drill_up", "Drill Up", show=False),
+        Binding("up", "focus_up", "Up", show=False),
+        Binding("down", "focus_down", "Down", show=False),
+        Binding("left", "focus_left", "Left", show=False),
+        Binding("right", "focus_right", "Right", show=False),
         Binding("f5", "refresh", "Refresh"),
     ]
 
     def __init__(self, db_manager: DatabaseManager):
         super().__init__()
         self.db_manager = db_manager
+        self._mode: str = "breakdown"
+        self._comparison_count: int = 3
+        self._focused_quadrant: int = 0  # 0=income, 1=expense, 2=asset, 3=liability
+        self._drill_overlay: Optional[OptionList] = None
 
     def compose(self) -> ComposeResult:
+        yield AppHeader("Dashboard")
         yield Container(
-            Static("Dashboard", classes="screen-title"),
             Vertical(
-                # KPI Row
+                # KPI Row — 6 KPIs
                 Horizontal(
-                    Container(id="net-worth-kpi", classes="kpi-container"),
-                    Container(id="income-kpi", classes="kpi-container"),
-                    Container(id="expenses-kpi", classes="kpi-container"),
-                    Container(id="savings-kpi", classes="kpi-container"),
+                    Container(id="kpi-net-worth", classes="kpi-container"),
+                    Container(id="kpi-income", classes="kpi-container"),
+                    Container(id="kpi-expenses", classes="kpi-container"),
+                    Container(id="kpi-net", classes="kpi-container"),
+                    Container(id="kpi-savings", classes="kpi-container"),
+                    Container(id="kpi-budget", classes="kpi-container"),
                     id="kpi-row",
                 ),
-                # Main content area
-                Horizontal(
-                    # Recent transactions
-                    Vertical(
-                        Static("Recent Transactions", classes="section-title"),
-                        DataTable(id="recent-transactions", zebra_stripes=True),
-                        id="transactions-section",
-                    ),
-                    # Expense breakdown
-                    Vertical(
-                        Static("This Month's Expenses", classes="section-title"),
-                        DataTable(id="expense-breakdown", zebra_stripes=True),
-                        id="breakdown-section",
-                    ),
-                    id="main-content",
+                # Mode indicator
+                Static("", id="mode-indicator"),
+                # 2x2 Chart Grid
+                Grid(
+                    ChartQuadrant("income", "Income", "q-income"),
+                    ChartQuadrant("expense", "Expenses", "q-expense"),
+                    ChartQuadrant("asset", "Assets", "q-asset"),
+                    ChartQuadrant("liability", "Liabilities", "q-liability"),
+                    id="chart-grid",
                 ),
                 id="dashboard-content",
             ),
         )
 
     def on_mount(self) -> None:
-        """Load dashboard data when mounted."""
+        """Load data and focus first quadrant."""
+        self._update_mode_indicator()
         self.load_data()
+        # Focus the first quadrant
+        try:
+            self.query_one("#q-income", ChartQuadrant).focus()
+        except Exception:
+            pass
 
     def load_data(self) -> None:
         """Load all dashboard data."""
         try:
             with self.db_manager.get_session() as session:
                 report_service = ReportService(session)
+                budget_service = BudgetService(session)
+
+                start = self.app.period_start
+                end = self.app.period_end
 
                 # Load KPIs
-                self._load_net_worth(report_service)
-                self._load_period_summary(report_service)
+                self._load_kpis(report_service, budget_service, start, end)
 
-                # Load tables
-                self._load_recent_transactions(report_service)
-                self._load_expense_breakdown(report_service)
+                # Load all 4 quadrants
+                for i, (acct_type, title, qid) in enumerate(QUADRANTS):
+                    self._load_quadrant(report_service, i, acct_type, title, qid, start, end)
 
         except Exception as e:
             self.notify(f"Error loading dashboard: {e}", severity="error")
 
-    def _load_net_worth(self, report_service: ReportService) -> None:
-        """Load and display net worth KPI."""
+    def _load_kpis(
+        self,
+        report_service: ReportService,
+        budget_service: BudgetService,
+        start: date,
+        end: date,
+    ) -> None:
+        """Load and display all 6 KPIs."""
+        # Net Worth
         net_worth = report_service.get_net_worth()
-        container = self.query_one("#net-worth-kpi")
-        container.remove_children()
-        container.mount(
-            KPIWidget(
-                title="Net Worth",
-                value=self._format_currency(net_worth.net_worth),
-                subtitle=f"Assets: {self._format_currency(net_worth.total_assets)}",
-                classes="kpi-widget",
-            )
-        )
+        self._set_kpi("kpi-net-worth", "Net Worth", self._fmt(net_worth.net_worth))
 
-    def _load_period_summary(self, report_service: ReportService) -> None:
-        """Load and display income/expense KPIs."""
-        summary = report_service.get_current_month_summary()
+        # Period summary
+        summary = report_service.get_period_summary(start, end)
 
-        # Income KPI
-        income_container = self.query_one("#income-kpi")
-        income_container.remove_children()
-        income_container.mount(
-            KPIWidget(
-                title="Income (This Month)",
-                value=self._format_currency(summary.total_income),
-                subtitle="",
-                classes="kpi-widget kpi-income",
-            )
-        )
+        self._set_kpi("kpi-income", "Income", self._fmt(summary.total_income), classes="kpi-widget kpi-income")
+        self._set_kpi("kpi-expenses", "Expenses", self._fmt(summary.total_expenses), classes="kpi-widget kpi-expense")
+        self._set_kpi("kpi-net", "Net", self._fmt(summary.net_income))
 
-        # Expenses KPI
-        expenses_container = self.query_one("#expenses-kpi")
-        expenses_container.remove_children()
-        expenses_container.mount(
-            KPIWidget(
-                title="Expenses (This Month)",
-                value=self._format_currency(summary.total_expenses),
-                subtitle="",
-                classes="kpi-widget kpi-expense",
-            )
-        )
-
-        # Savings Rate KPI
-        savings_container = self.query_one("#savings-kpi")
-        savings_container.remove_children()
-
-        # Color based on savings rate
+        # Savings rate
         savings_class = "kpi-widget"
         if summary.savings_rate >= 20:
             savings_class += " kpi-good"
@@ -146,67 +154,334 @@ class DashboardScreen(Screen):
             savings_class += " kpi-neutral"
         else:
             savings_class += " kpi-bad"
+        self._set_kpi("kpi-savings", "Savings %", f"{summary.savings_rate}%", classes=savings_class)
 
-        savings_container.mount(
-            KPIWidget(
-                title="Savings Rate",
-                value=f"{summary.savings_rate}%",
-                subtitle=f"Net: {self._format_currency(summary.net_income)}",
-                classes=savings_class,
-            )
+        # Budget utilization
+        budget_pct = budget_service.get_overall_budget_utilization(start, end)
+        budget_class = "kpi-widget"
+        if budget_pct <= 80:
+            budget_class += " kpi-good"
+        elif budget_pct <= 100:
+            budget_class += " kpi-neutral"
+        else:
+            budget_class += " kpi-bad"
+        self._set_kpi("kpi-budget", "Budget %", f"{budget_pct}%", classes=budget_class)
+
+    def _set_kpi(self, container_id: str, title: str, value: str, subtitle: str = "", classes: str = "kpi-widget") -> None:
+        """Set a KPI widget inside its container."""
+        try:
+            container = self.query_one(f"#{container_id}")
+            container.remove_children()
+            container.mount(KPIWidget(title=title, value=value, subtitle=subtitle, classes=classes))
+        except Exception:
+            pass
+
+    def _load_quadrant(
+        self,
+        report_service: ReportService,
+        index: int,
+        account_type: str,
+        title: str,
+        quadrant_id: str,
+        start: date,
+        end: date,
+    ) -> None:
+        """Load data for a single quadrant based on current mode."""
+        try:
+            quadrant = self.query_one(f"#{quadrant_id}", ChartQuadrant)
+        except Exception:
+            return
+
+        drill_path = quadrant.drill_path
+        quadrant.set_mode(self._mode)
+
+        if self._mode == "breakdown":
+            self._load_breakdown(report_service, quadrant, account_type, start, end, drill_path)
+        else:
+            self._load_comparison(report_service, quadrant, account_type, start, end, drill_path)
+
+    def _load_breakdown(
+        self,
+        report_service: ReportService,
+        quadrant: ChartQuadrant,
+        account_type: str,
+        start: date,
+        end: date,
+        drill_path: Optional[str],
+    ) -> None:
+        """Load breakdown mode data for a quadrant."""
+        nodes = report_service.get_hierarchical_breakdown(
+            account_type, start, end, parent_path=drill_path
         )
 
-    def _load_recent_transactions(self, report_service: ReportService) -> None:
-        """Load recent transactions table."""
-        table = self.query_one("#recent-transactions", DataTable)
-        table.clear(columns=True)
-        table.add_columns("Date", "Description", "Account", "Amount")
-        table.cursor_type = "row"
+        if not nodes:
+            quadrant.render_chart([], [], [])
+            return
 
-        transactions = report_service.get_recent_transactions(limit=10)
-
-        for txn in transactions:
-            # Format amount with sign
-            if txn.is_expense:
-                amount_str = f"-{self._format_currency(txn.amount)}"
-            else:
-                amount_str = f"+{self._format_currency(txn.amount)}"
-
-            # Truncate long descriptions
-            desc = txn.description[:30] + "..." if len(txn.description) > 30 else txn.description
-
-            # Show leaf account name only
-            account_display = txn.primary_account.split(":")[-1]
-
-            table.add_row(
-                txn.date.strftime("%b %d"),
-                desc,
-                account_display,
-                amount_str,
+        # Auto-drill: if only 1 category and it has children, drill into it
+        if len(nodes) == 1 and nodes[0].has_children:
+            auto_path = nodes[0].name
+            deeper = report_service.get_hierarchical_breakdown(
+                account_type, start, end, parent_path=auto_path
             )
+            if deeper:
+                quadrant.drill_path = auto_path
+                nodes = deeper
 
-    def _load_expense_breakdown(self, report_service: ReportService) -> None:
-        """Load expense breakdown table."""
-        table = self.query_one("#expense-breakdown", DataTable)
-        table.clear(columns=True)
-        table.add_columns("Category", "Amount", "%")
-        table.cursor_type = "row"
+        labels = [n.display_name for n in nodes]
+        values = [float(n.amount) for n in nodes]
+        quadrant.render_chart(labels, values, nodes)
 
-        summary = report_service.get_current_month_summary()
-        breakdown = report_service.get_expense_breakdown(
-            summary.start_date, summary.end_date
+    def _load_comparison(
+        self,
+        report_service: ReportService,
+        quadrant: ChartQuadrant,
+        account_type: str,
+        start: date,
+        end: date,
+        drill_path: Optional[str],
+    ) -> None:
+        """Load comparison mode data for a quadrant."""
+        periods = report_service.compute_prior_periods(start, end, self._comparison_count)
+        points = report_service.get_period_comparison(
+            account_type, periods, parent_path=drill_path
         )
 
-        for item in breakdown[:8]:  # Top 8 categories
-            # Show leaf category name only
-            category_display = item.category_name.split(":")[-1]
-            table.add_row(
-                category_display,
-                self._format_currency(item.amount),
-                f"{item.percentage}%",
+        # Load category nodes so drill-down knows what's available
+        nodes = report_service.get_hierarchical_breakdown(
+            account_type, start, end, parent_path=drill_path
+        )
+        # Auto-drill single-node like breakdown mode
+        if len(nodes) == 1 and nodes[0].has_children and not drill_path:
+            auto_path = nodes[0].name
+            deeper = report_service.get_hierarchical_breakdown(
+                account_type, start, end, parent_path=auto_path
             )
+            if deeper:
+                quadrant.drill_path = auto_path
+                nodes = deeper
+                # Re-fetch comparison with the auto-drilled path
+                points = report_service.get_period_comparison(
+                    account_type, periods, parent_path=auto_path
+                )
 
-    def _format_currency(self, amount: Decimal) -> str:
+        labels = [p.period_label for p in points]
+        values = [float(p.value) for p in points]
+        quadrant.render_chart(labels, values, nodes)
+
+    def _update_mode_indicator(self) -> None:
+        """Update the mode indicator bar."""
+        mode = self._mode.title()
+        text = f"[bold]\\[M][/bold]ode: {mode}"
+        if self._mode == "comparison":
+            text += f"  |  [bold]\\[+/-][/bold] Periods: {self._comparison_count}"
+        try:
+            self.query_one("#mode-indicator", Static).update(text)
+        except Exception:
+            pass
+
+    # ── Quadrant focus navigation ──
+
+    def _get_focused_quadrant(self) -> Optional[ChartQuadrant]:
+        """Get the currently focused ChartQuadrant, if any."""
+        focused = self.focused
+        if isinstance(focused, ChartQuadrant):
+            return focused
+        return None
+
+    def _focus_quadrant(self, index: int) -> None:
+        """Focus quadrant by index (0-3)."""
+        index = max(0, min(3, index))
+        self._focused_quadrant = index
+        qid = QUADRANTS[index][2]
+        try:
+            self.query_one(f"#{qid}", ChartQuadrant).focus()
+        except Exception:
+            pass
+
+    def _quadrant_index_of(self, quadrant: ChartQuadrant) -> int:
+        """Get the grid index of a quadrant."""
+        for i, (_, _, qid) in enumerate(QUADRANTS):
+            if quadrant.id == qid:
+                return i
+        return 0
+
+    def action_focus_up(self) -> None:
+        q = self._get_focused_quadrant()
+        if q:
+            idx = self._quadrant_index_of(q)
+            if idx >= 2:
+                self._focus_quadrant(idx - 2)
+
+    def action_focus_down(self) -> None:
+        q = self._get_focused_quadrant()
+        if q:
+            idx = self._quadrant_index_of(q)
+            if idx < 2:
+                self._focus_quadrant(idx + 2)
+
+    def action_focus_left(self) -> None:
+        q = self._get_focused_quadrant()
+        if q:
+            idx = self._quadrant_index_of(q)
+            if idx % 2 == 1:
+                self._focus_quadrant(idx - 1)
+
+    def action_focus_right(self) -> None:
+        q = self._get_focused_quadrant()
+        if q:
+            idx = self._quadrant_index_of(q)
+            if idx % 2 == 0:
+                self._focus_quadrant(idx + 1)
+
+    # ── Action handlers ──
+
+    def action_toggle_mode(self) -> None:
+        """Toggle between breakdown and comparison modes."""
+        idx = MODES.index(self._mode)
+        self._mode = MODES[(idx + 1) % len(MODES)]
+        self._update_mode_indicator()
+        # Reset all drill paths and set mode on each quadrant
+        for _, _, qid in QUADRANTS:
+            try:
+                q = self.query_one(f"#{qid}", ChartQuadrant)
+                q.drill_path = None
+                q.set_mode(self._mode)
+            except Exception:
+                pass
+        self._reload_all_quadrants()
+        self.notify(f"Mode: {self._mode}")
+
+    def action_more_periods(self) -> None:
+        """Add more comparison periods."""
+        if self._mode != "comparison":
+            return
+        if self._comparison_count < 12:
+            self._comparison_count += 1
+            self._update_mode_indicator()
+            self._reload_all_quadrants()
+            self.notify(f"Periods: {self._comparison_count}")
+
+    def action_fewer_periods(self) -> None:
+        """Reduce comparison periods."""
+        if self._mode != "comparison":
+            return
+        if self._comparison_count > 1:
+            self._comparison_count -= 1
+            self._update_mode_indicator()
+            self._reload_all_quadrants()
+            self.notify(f"Periods: {self._comparison_count}")
+
+    def action_drill_down(self) -> None:
+        """Drill into subcategories of the focused quadrant."""
+        q = self._get_focused_quadrant()
+        if not q:
+            return
+
+        if self._mode == "comparison":
+            # In comparison mode, all categories are selectable (isolate period data)
+            all_nodes = q._category_nodes
+            if not all_nodes:
+                self.notify("No categories to drill into")
+                return
+            self._show_drill_overlay(q, all_nodes)
+        else:
+            # In breakdown mode, only drill into categories with children
+            drillable = q.get_drillable_categories()
+            if not drillable:
+                self.notify("No subcategories to drill into")
+                return
+            self._show_drill_overlay(q, drillable)
+
+    def action_drill_up(self) -> None:
+        """Drill back up one level."""
+        # If overlay is showing, dismiss it
+        if self._drill_overlay is not None:
+            self._dismiss_drill_overlay()
+            return
+
+        q = self._get_focused_quadrant()
+        if not q or not q.drill_path:
+            return
+
+        # Go up one level
+        parts = q.drill_path.split(":")
+        if len(parts) > 1:
+            q.drill_path = ":".join(parts[:-1])
+        else:
+            q.drill_path = None
+
+        self._reload_quadrant_by_widget(q)
+
+    def _show_drill_overlay(self, quadrant: ChartQuadrant, nodes: List[CategoryNode]) -> None:
+        """Show an OptionList overlay for drill-down selection."""
+        self._dismiss_drill_overlay()
+
+        options = []
+        for node in nodes:
+            label = f"{node.display_name} — AED {node.amount:,.2f}"
+            options.append(Option(label, id=node.name))
+
+        option_list = OptionList(*options, id="drill-overlay")
+        self._drill_overlay = option_list
+        self._drill_quadrant = quadrant
+
+        # Mount on the quadrant itself
+        quadrant.mount(option_list)
+        option_list.focus()
+
+    def _dismiss_drill_overlay(self) -> None:
+        """Remove the drill-down overlay."""
+        if self._drill_overlay is not None:
+            try:
+                self._drill_overlay.remove()
+            except Exception:
+                pass
+            self._drill_overlay = None
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Handle drill-down selection."""
+        if self._drill_overlay is None:
+            return
+
+        selected_path = event.option.id
+        quadrant = self._drill_quadrant
+        self._dismiss_drill_overlay()
+
+        if selected_path and quadrant:
+            quadrant.drill_path = selected_path
+            self._reload_quadrant_by_widget(quadrant)
+            quadrant.focus()
+
+    def _reload_quadrant_by_widget(self, quadrant: ChartQuadrant) -> None:
+        """Reload a single quadrant's data."""
+        try:
+            with self.db_manager.get_session() as session:
+                report_service = ReportService(session)
+                start = self.app.period_start
+                end = self.app.period_end
+
+                for i, (acct_type, title, qid) in enumerate(QUADRANTS):
+                    if quadrant.id == qid:
+                        self._load_quadrant(report_service, i, acct_type, title, qid, start, end)
+                        break
+        except Exception as e:
+            self.notify(f"Error: {e}", severity="error")
+
+    def _reload_all_quadrants(self) -> None:
+        """Reload all quadrants."""
+        try:
+            with self.db_manager.get_session() as session:
+                report_service = ReportService(session)
+                start = self.app.period_start
+                end = self.app.period_end
+
+                for i, (acct_type, title, qid) in enumerate(QUADRANTS):
+                    self._load_quadrant(report_service, i, acct_type, title, qid, start, end)
+        except Exception as e:
+            self.notify(f"Error: {e}", severity="error")
+
+    def _fmt(self, amount: Decimal) -> str:
         """Format decimal as currency string."""
         if amount >= 0:
             return f"AED {amount:,.2f}"
@@ -219,4 +494,3 @@ class DashboardScreen(Screen):
 
     def action_refresh(self) -> None:
         self.refresh_data()
-        self.notify("Dashboard refreshed", severity="information")

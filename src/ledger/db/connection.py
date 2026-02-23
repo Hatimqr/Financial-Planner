@@ -90,8 +90,23 @@ def get_db_manager(db_path: str = "data/ledger.db") -> DatabaseManager:
 
     Returns:
         DatabaseManager instance
+
+    Raises:
+        ValueError: If called with a different db_path than the existing instance
     """
     global _db_manager
     if _db_manager is None:
         _db_manager = DatabaseManager(db_path)
+    elif _db_manager.db_path != db_path:
+        raise ValueError(
+            f"DatabaseManager already initialized with path '{_db_manager.db_path}', "
+            f"cannot reinitialize with '{db_path}'. "
+            f"Use reset_db_manager() first to change the database path."
+        )
     return _db_manager
+
+
+def reset_db_manager() -> None:
+    """Reset the global database manager singleton, allowing reinitialization."""
+    global _db_manager
+    _db_manager = None

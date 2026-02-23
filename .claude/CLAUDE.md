@@ -80,6 +80,8 @@ Four core tables:
 3. **postings** — Line items linking entries to accounts with amounts (positive=debit, negative=credit)
 4. **budgets** — Category budgets by period (monthly, quarterly, yearly)
 
+See [docs/database-schema.md](docs/database-schema.md) for the full schema reference with ER diagram, column details, indexes, and design notes.
+
 ## Development Commands
 
 ```bash
@@ -109,9 +111,11 @@ ruff check src/ledger
 
 ## Key Bindings
 
-**Global:** `Ctrl+P` commands | `d/a/t/r/b` screens | `/` search | `?` help | `q` quit
-**Transactions:** `Enter` details | `e` edit | `Delete` delete | `n` new
-**Vim-style:** `j/k` nav | `gg/G` top/bottom | `Ctrl+D/U` page
+**Global:** `/` commands | `d/a/t/r/b` screens | `Ctrl+/` search | `?` help | `q` quit
+**Transactions:** `Enter` details | `e` edit | `Backspace` delete | `n` new | `Ctrl+/` search
+**Periods:** `1-9` switch | `Tab/S-Tab` cycle | `p` manage
+
+See [docs/keybindings.md](docs/keybindings.md) for the full reference.
 
 ## Validation Rules
 

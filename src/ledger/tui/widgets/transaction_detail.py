@@ -2,7 +2,7 @@
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Vertical
+from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Static
 
@@ -15,12 +15,16 @@ class TransactionDetailModal(ModalScreen):
 
     BINDINGS = [
         Binding("escape", "dismiss", "Close"),
+        Binding("e", "edit", "Edit", show=False),
     ]
 
     def __init__(self, db_manager: DatabaseManager, entry_id: int):
         super().__init__()
         self.db_manager = db_manager
         self.entry_id = entry_id
+
+    def action_edit(self) -> None:
+        self.dismiss("edit")
 
     def compose(self) -> ComposeResult:
         yield Container(
@@ -29,7 +33,11 @@ class TransactionDetailModal(ModalScreen):
                 Static("", id="detail-header"),
                 DataTable(id="postings-table", zebra_stripes=True),
                 Static("", id="detail-notes"),
-                Button("Close", variant="default", id="close_btn"),
+                Horizontal(
+                    Button("Close [Esc]", variant="default", id="close_btn"),
+                    Button("Edit [e]", variant="primary", id="edit_btn"),
+                    classes="button-row",
+                ),
             ),
             classes="modal detail-modal",
         )
@@ -74,4 +82,7 @@ class TransactionDetailModal(ModalScreen):
             self.query_one("#detail-header", Static).update(f"Error: {e}")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.dismiss()
+        if event.button.id == "edit_btn":
+            self.dismiss("edit")
+        else:
+            self.dismiss()

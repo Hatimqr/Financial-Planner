@@ -12,6 +12,7 @@ from ledger.db.connection import DatabaseManager
 from ledger.services.account_service import AccountService
 from ledger.services.pdf_import_models import ResolvedTransaction
 from ledger.services.pdf_import_service import PdfImportService
+from ledger.tui.widgets.app_header import AppHeader
 
 
 class ImportReviewScreen(Screen):
@@ -34,8 +35,8 @@ class ImportReviewScreen(Screen):
         self._source_account_id: int | None = None
 
     def compose(self) -> ComposeResult:
+        yield AppHeader("Import")
         yield Container(
-            Static("Import Statement", id="screen-title", classes="screen-title"),
             Horizontal(
                 Vertical(
                     Label("File Path"),
@@ -64,6 +65,7 @@ class ImportReviewScreen(Screen):
                 Button("Cancel", variant="default", id="cancel_btn"),
                 classes="button-row",
             ),
+            id="import-container",
         )
 
     NEW_ACCOUNT_SENTINEL = "__new_account__"
@@ -77,6 +79,8 @@ class ImportReviewScreen(Screen):
         table = self.query_one("#import_review_table", DataTable)
         table.cursor_type = "row"
         table.add_columns("✓", "Date", "Description", "Account", "Debit", "Credit", "Status")
+
+        self.query_one("#import_review_table", DataTable).focus()
 
         # Auto-load if file path was provided
         if self.initial_file_path:
@@ -319,7 +323,10 @@ class ImportReviewScreen(Screen):
                 if confirmed:
                     self._do_commit()
 
-            self.app.push_screen(ConfirmDialog(msg), on_confirmed)
+            self.app.push_screen(
+                ConfirmDialog(msg, confirm_label="Import", confirm_variant="success"),
+                on_confirmed,
+            )
         else:
             self._do_commit()
 

@@ -15,16 +15,23 @@ class ConfirmDialog(ModalScreen[bool]):
         Binding("enter", "confirm", "Confirm", show=False),
     ]
 
-    def __init__(self, message: str):
+    def __init__(
+        self,
+        message: str,
+        confirm_label: str = "Delete",
+        confirm_variant: str = "error",
+    ):
         super().__init__()
         self.message = message
+        self.confirm_label = confirm_label
+        self.confirm_variant = confirm_variant
 
     def compose(self) -> ComposeResult:
         yield Container(
             Static(self.message, classes="confirm-message"),
             Horizontal(
-                Button("Cancel", variant="default", id="cancel_btn"),
-                Button("Delete", variant="error", id="confirm_btn"),
+                Button("Cancel [Esc]", variant="default", id="cancel_btn"),
+                Button(f"{self.confirm_label} [Enter]", variant=self.confirm_variant, id="confirm_btn"),
                 classes="button-row",
             ),
             classes="modal",

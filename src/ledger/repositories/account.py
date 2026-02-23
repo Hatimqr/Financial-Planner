@@ -47,7 +47,12 @@ class AccountRepository(BaseRepository[Account]):
         Returns:
             List of accounts matching the type
         """
-        return self.session.query(Account).filter_by(type=account_type).all()
+        return (
+            self.session.query(Account)
+            .filter_by(type=account_type)
+            .filter(Account.archived_at.is_(None))
+            .all()
+        )
 
     def archive(self, account: Account) -> Account:
         """
@@ -63,6 +68,11 @@ class AccountRepository(BaseRepository[Account]):
         self.session.flush()
         return account
 
+    @staticmethod
+    def _escape_like(value: str) -> str:
+        """Escape SQL LIKE wildcards in a value."""
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
     def get_children(self, parent_path: str) -> List[Account]:
         """
         Get all child accounts of a parent.
@@ -73,9 +83,10 @@ class AccountRepository(BaseRepository[Account]):
         Returns:
             List of child accounts (e.g., "Assets:Bank:Checking", "Assets:Bank:Savings")
         """
+        escaped = self._escape_like(parent_path)
         return (
             self.session.query(Account)
-            .filter(Account.name.like(f"{parent_path}:%"))
+            .filter(Account.name.like(f"{escaped}:%", escape="\\"))
             .all()
         )
 
@@ -107,7 +118,7 @@ class AccountRepository(BaseRepository[Account]):
         """
         return (
             self.session.query(Account)
-            .filter(Account.name.like(f"{prefix}%"))
+            .filter(Account.name.like(f"{self._escape_like(prefix)}%", escape="\\"))
             .filter(Account.archived_at.is_(None))
             .order_by(Account.name)
             .limit(limit)

@@ -155,9 +155,12 @@ class ImportService:
         source_account_id: int,
         target_account_id: int,
         skip_duplicates: bool = True,
-    ) -> int:
+    ) -> tuple[int, list[str]]:
         """
         Import transactions from a CSV file.
+
+        Each row is wrapped in a savepoint so individual failures are
+        skipped without aborting the entire import.
 
         Args:
             file_path: Path to the CSV file
@@ -167,10 +170,11 @@ class ImportService:
             skip_duplicates: Whether to skip duplicate entries
 
         Returns:
-            Number of transactions imported
+            Tuple of (number imported, list of error messages for failed rows)
         """
         preview = self.preview_csv(file_path, mapping, source_account_id)
         imported = 0
+        errors: list[str] = []
 
         for row in preview.rows:
             if row.error:
@@ -190,18 +194,24 @@ class ImportService:
                 to_id = source_account_id
                 amount = row.amount
 
-            self.txn_service.create_simple_transaction(
-                transaction_date=row.transaction_date,
-                description=row.description,
-                from_account_id=from_id,
-                to_account_id=to_id,
-                amount=amount,
-                payee=row.payee,
-                memo=row.memo,
-            )
-            imported += 1
+            try:
+                nested = self.session.begin_nested()
+                self.txn_service.create_simple_transaction(
+                    transaction_date=row.transaction_date,
+                    description=row.description,
+                    from_account_id=from_id,
+                    to_account_id=to_id,
+                    amount=amount,
+                    payee=row.payee,
+                    memo=row.memo,
+                )
+                nested.commit()
+                imported += 1
+            except Exception as e:
+                nested.rollback()
+                errors.append(f"Row {row.row_number}: {e}")
 
-        return imported
+        return imported, errors
 
     def _parse_row(self, row: list[str], row_number: int, mapping: ColumnMapping) -> ImportRow:
         """Parse a single CSV row into an ImportRow."""

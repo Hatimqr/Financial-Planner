@@ -19,10 +19,14 @@ class TransactionFormModal(ModalScreen):
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
+        Binding("ctrl+s", "save", "Save", show=False),
     ]
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def action_save(self) -> None:
+        self.save_transaction()
 
     def __init__(self, db_manager: DatabaseManager, entry_id: int | None = None):
         super().__init__()
@@ -77,7 +81,7 @@ class TransactionFormModal(ModalScreen):
         title = "Edit Transaction" if self.entry_id else "New Transaction"
         yield Container(
             Static(title, classes="modal-title"),
-            Static(self.error_message, id="error_display", classes="modal-error"),
+            Static(self.error_message, id="error-display", classes="modal-error"),
             Vertical(
                 Label("Date (YYYY-MM-DD)"),
                 Input(
@@ -113,8 +117,8 @@ class TransactionFormModal(ModalScreen):
                 Label("Memo (optional)"),
                 Input(placeholder="Optional memo", id="memo_input", classes="form-field"),
                 Horizontal(
-                    Button("Cancel", variant="default", id="cancel_btn"),
-                    Button("Save", variant="primary", id="save_btn"),
+                    Button("Cancel [Esc]", variant="default", id="cancel_btn"),
+                    Button("Save [^S]", variant="primary", id="save_btn"),
                     classes="button-row",
                 ),
             ),
@@ -127,8 +131,13 @@ class TransactionFormModal(ModalScreen):
         elif event.button.id == "save_btn":
             self.save_transaction()
 
+    def _clear_field_errors(self) -> None:
+        for widget in self.query(".field-error"):
+            widget.remove_class("field-error")
+
     def save_transaction(self) -> None:
         """Save or update the transaction."""
+        self._clear_field_errors()
         try:
             # Get form values
             date_str = self.query_one("#date_input", Input).value.strip()
@@ -141,26 +150,36 @@ class TransactionFormModal(ModalScreen):
 
             # Validation
             if not description:
+                self.query_one("#description_input").add_class("field-error")
                 self.show_error("Description is required")
                 return
 
             if not amount_str:
+                self.query_one("#amount_input").add_class("field-error")
                 self.show_error("Amount is required")
                 return
 
-            if from_account_id_str == Select.BLANK or to_account_id_str == Select.BLANK:
+            if from_account_id_str == Select.BLANK:
+                self.query_one("#from_account_select").add_class("field-error")
+                self.show_error("Both accounts must be selected")
+                return
+
+            if to_account_id_str == Select.BLANK:
+                self.query_one("#to_account_select").add_class("field-error")
                 self.show_error("Both accounts must be selected")
                 return
 
             try:
                 transaction_date = date.fromisoformat(date_str)
             except ValueError:
+                self.query_one("#date_input").add_class("field-error")
                 self.show_error("Invalid date format. Use YYYY-MM-DD")
                 return
 
             try:
                 amount = Decimal(amount_str)
             except (InvalidOperation, ValueError):
+                self.query_one("#amount_input").add_class("field-error")
                 self.show_error("Invalid amount. Use decimal format (e.g., 123.45)")
                 return
 
@@ -169,6 +188,12 @@ class TransactionFormModal(ModalScreen):
                 to_account_id = int(to_account_id_str)
             except ValueError:
                 self.show_error("Invalid account selection")
+                return
+
+            if from_account_id == to_account_id:
+                self.query_one("#from_account_select").add_class("field-error")
+                self.query_one("#to_account_select").add_class("field-error")
+                self.show_error("Source and destination cannot be the same account")
                 return
 
             with self.db_manager.get_session() as session:
@@ -206,5 +231,4 @@ class TransactionFormModal(ModalScreen):
             self.show_error(f"Error saving transaction: {e}")
 
     def show_error(self, message: str) -> None:
-        error_display = self.query_one("#error_display", Static)
-        error_display.update(message)
+        self.query_one("#error-display", Static).update(message)

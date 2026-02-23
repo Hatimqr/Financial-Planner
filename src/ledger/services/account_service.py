@@ -1,5 +1,7 @@
 """Account service for account management business logic."""
 
+from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from typing import List, Optional
 
@@ -8,6 +10,33 @@ from sqlalchemy.orm import Session
 from ledger.db.models import Account
 from ledger.repositories.account import AccountRepository
 from ledger.repositories.posting import PostingRepository
+
+
+@dataclass
+class TAccountPostingItem:
+    """A single posting item for T-account display."""
+    date: date
+    description: str
+    amount: Decimal
+
+
+@dataclass
+class TAccountView:
+    """T-account view data for an account."""
+    account_name: str
+    account_type: str
+    debits: List[TAccountPostingItem] = field(default_factory=list)
+    credits: List[TAccountPostingItem] = field(default_factory=list)
+    total_debits: Decimal = Decimal("0")
+    total_credits: Decimal = Decimal("0")
+    net_balance: Decimal = Decimal("0")
+    opening_balance: Decimal = Decimal("0")  # Balance b/f at period start
+    closing_balance: Decimal = Decimal("0")  # Balance c/f at period end
+
+    @property
+    def is_debit_normal(self) -> bool:
+        """Whether this account has a normal debit balance (asset, expense)."""
+        return self.account_type in ("asset", "expense")
 
 
 class AccountService:
@@ -149,6 +178,31 @@ class AccountService:
 
         return self.account_repo.get_by_type(account_type_lower)
 
+    def get_subtree_balance_in_period(
+        self, account: Account, start_date: date, end_date: date
+    ) -> Decimal:
+        """
+        Get balance for an account and all its descendants within a period.
+
+        For leaf accounts, returns just that account's balance in the period.
+        For placeholder parents, sums all descendant balances in the period.
+
+        Args:
+            account: Account object
+            start_date: Period start date
+            end_date: Period end date
+
+        Returns:
+            Subtree balance as Decimal
+        """
+        account_ids = [account.id]
+        if account.is_placeholder:
+            children = self.account_repo.get_children(account.name)
+            account_ids.extend(c.id for c in children)
+        return self.posting_repo.get_balance_for_accounts_in_period(
+            account_ids, start_date, end_date
+        )
+
     def get_account_balance(self, account_id: int) -> Decimal:
         """
         Get current balance for an account.
@@ -172,11 +226,22 @@ class AccountService:
             Archived account
 
         Raises:
-            ValueError: If account not found
+            ValueError: If account not found or has active children
         """
         account = self.account_repo.get_by_id(account_id)
         if not account:
             raise ValueError(f"Account with ID {account_id} not found")
+
+        # Check for active (non-archived) child accounts
+        children = self.account_repo.get_children(account.name)
+        active_children = [c for c in children if c.archived_at is None]
+        if active_children:
+            child_names = ", ".join(c.name for c in active_children[:3])
+            suffix = f" and {len(active_children) - 3} more" if len(active_children) > 3 else ""
+            raise ValueError(
+                f"Cannot archive '{account.name}': has active child accounts "
+                f"({child_names}{suffix}). Archive or move children first."
+            )
 
         return self.account_repo.archive(account)
 
@@ -204,6 +269,7 @@ class AccountService:
         if not account:
             raise ValueError(f"Account with ID {account_id} not found")
 
+        old_name = account.name
         updates = {}
         if name is not None:
             # Check if new name already exists
@@ -216,6 +282,13 @@ class AccountService:
             updates["notes"] = notes
 
         if updates:
+            # If renaming, cascade to all child accounts first
+            if name is not None and name != old_name:
+                children = self.account_repo.get_children(old_name)
+                for child in children:
+                    new_child_name = name + child.name[len(old_name):]
+                    self.account_repo.update(child, name=new_child_name)
+
             return self.account_repo.update(account, **updates)
 
         return account
@@ -336,3 +409,51 @@ class AccountService:
             List of root accounts
         """
         return self.account_repo.get_root_accounts()
+
+    def get_account_t_view(
+        self, account_id: int, start_date: date, end_date: date
+    ) -> TAccountView:
+        """
+        Get T-account view data for an account within a date range.
+
+        Args:
+            account_id: Account ID
+            start_date: Period start date
+            end_date: Period end date
+
+        Returns:
+            TAccountView with debits, credits, and totals
+        """
+        account = self.account_repo.get_by_id(account_id)
+        if not account:
+            raise ValueError(f"Account with ID {account_id} not found")
+
+        # Get opening balance (all postings before period start)
+        opening_raw = self.posting_repo.get_balance_before_date(account_id, start_date)
+
+        postings = self.posting_repo.get_by_account_in_period(
+            account_id, start_date, end_date
+        )
+
+        view = TAccountView(
+            account_name=account.name,
+            account_type=account.type,
+            opening_balance=opening_raw,
+        )
+
+        for posting in postings:
+            item = TAccountPostingItem(
+                date=posting.entry.date,
+                description=posting.entry.description,
+                amount=abs(posting.amount),
+            )
+            if posting.amount > 0:
+                view.debits.append(item)
+                view.total_debits += item.amount
+            else:
+                view.credits.append(item)
+                view.total_credits += item.amount
+
+        view.net_balance = view.total_debits - view.total_credits
+        view.closing_balance = opening_raw + view.net_balance
+        return view

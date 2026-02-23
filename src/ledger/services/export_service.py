@@ -31,7 +31,7 @@ class ExportService:
         Args:
             output_path: Path to output CSV file
         """
-        entries = self.entry_repo.get_all()
+        entries = self.entry_repo.get_all_with_postings()
 
         with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
             fieldnames = [
@@ -48,9 +48,7 @@ class ExportService:
             writer.writeheader()
 
             for entry in entries:
-                entry_with_postings = self.entry_repo.get_with_postings(entry.id)
-                if entry_with_postings:
-                    for posting in entry_with_postings.postings:
+                for posting in entry.postings:
                         writer.writerow(
                             {
                                 "entry_id": entry.id,
@@ -97,31 +95,29 @@ class ExportService:
         Args:
             output_path: Path to output JSON file
         """
-        entries = self.entry_repo.get_all()
+        entries = self.entry_repo.get_all_with_postings()
 
         transaction_data = []
         for entry in entries:
-            entry_with_postings = self.entry_repo.get_with_postings(entry.id)
-            if entry_with_postings:
-                transaction_data.append(
-                    {
-                        "id": entry.id,
-                        "date": entry.date.isoformat(),
-                        "description": entry.description,
-                        "payee": entry.payee,
-                        "status": entry.status,
-                        "notes": entry.notes,
-                        "postings": [
-                            {
-                                "account_id": p.account_id,
-                                "account_name": p.account.name,
-                                "amount": float(p.amount),
-                                "memo": p.memo,
-                            }
-                            for p in entry_with_postings.postings
-                        ],
-                    }
-                )
+            transaction_data.append(
+                {
+                    "id": entry.id,
+                    "date": entry.date.isoformat(),
+                    "description": entry.description,
+                    "payee": entry.payee,
+                    "status": entry.status,
+                    "notes": entry.notes,
+                    "postings": [
+                        {
+                            "account_id": p.account_id,
+                            "account_name": p.account.name,
+                            "amount": float(p.amount),
+                            "memo": p.memo,
+                        }
+                        for p in entry.postings
+                    ],
+                }
+            )
 
         with open(output_path, "w", encoding="utf-8") as jsonfile:
             json.dump(transaction_data, jsonfile, indent=2, ensure_ascii=False)

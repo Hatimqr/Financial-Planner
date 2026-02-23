@@ -56,7 +56,7 @@ class TestImportService:
 
         service = ImportService(session)
         mapping = ColumnMapping(date_col=0, description_col=1, amount_col=2)
-        count = service.import_csv(
+        count, errors = service.import_csv(
             file_path=path,
             mapping=mapping,
             source_account_id=sample_accounts["checking"].id,
@@ -64,6 +64,7 @@ class TestImportService:
         )
 
         assert count == 2
+        assert errors == []
         session.commit()
 
         # Verify transactions were created
@@ -80,7 +81,7 @@ class TestImportService:
         mapping = ColumnMapping(date_col=0, description_col=1, amount_col=2)
 
         # Import once
-        service.import_csv(
+        count, errors = service.import_csv(
             file_path=path,
             mapping=mapping,
             source_account_id=sample_accounts["checking"].id,

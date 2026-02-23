@@ -1,8 +1,9 @@
 """Budget service for managing budgets and tracking spending."""
 
-from dataclasses import dataclass
-from datetime import date
-from decimal import Decimal
+import calendar
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional
 
 from sqlalchemy import func
@@ -10,6 +11,9 @@ from sqlalchemy.orm import Session
 
 from ledger.db.models import Budget, Entry, Posting
 from ledger.repositories.account import AccountRepository
+
+_PERIOD_ABBREV = {"monthly": "mo", "quarterly": "qtr", "yearly": "yr"}
+_PERIOD_MONTHS = {"monthly": 1, "quarterly": 3, "yearly": 12}
 
 
 @dataclass
@@ -19,11 +23,16 @@ class BudgetProgress:
     budget_id: int
     account_id: int
     account_name: str
-    budgeted_amount: Decimal
+    budgeted_amount: Decimal  # pro-rated amount for the view window
     spent_amount: Decimal
     remaining_amount: Decimal
     percentage_used: Decimal  # 0-100+
     is_over_budget: bool
+    period: str = "monthly"
+    is_prorated: bool = False
+    prorate_label: str = ""
+    rate_amount: Decimal = field(default_factory=lambda: Decimal("0"))
+    rate_period: str = ""
 
 
 class BudgetService:
@@ -66,9 +75,6 @@ class BudgetService:
         account = self.account_repo.get_by_id(account_id)
         if not account:
             raise ValueError(f"Account {account_id} not found")
-
-        if account.type != "expense":
-            raise ValueError("Budgets can only be created for expense accounts")
 
         if effective_from is None:
             effective_from = date.today().replace(day=1)
@@ -123,7 +129,7 @@ class BudgetService:
         self, account_id: int, start_date: date, end_date: date
     ) -> Decimal:
         """
-        Get total spending for an account in a period.
+        Get total spending for an account (and its children) in a period.
 
         Args:
             account_id: Account to check
@@ -133,11 +139,22 @@ class BudgetService:
         Returns:
             Total spending (positive value)
         """
+        from ledger.db.models import Account
+
+        account = self.account_repo.get_by_id(account_id)
+        if not account:
+            return Decimal("0")
+
+        # Collect account IDs: this account + all descendants
+        account_ids = [account_id]
+        children = self.account_repo.get_children(account.name)
+        account_ids.extend(c.id for c in children)
+
         result = (
             self.session.query(func.sum(Posting.amount))
             .join(Entry)
             .filter(
-                Posting.account_id == account_id,
+                Posting.account_id.in_(account_ids),
                 Entry.date >= start_date,
                 Entry.date <= end_date,
             )
@@ -146,35 +163,33 @@ class BudgetService:
         return Decimal(str(result)) if result else Decimal("0")
 
     def get_budget_progress(
-        self, budget: Budget, as_of_date: Optional[date] = None
+        self,
+        budget: Budget,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
     ) -> BudgetProgress:
         """
-        Calculate progress for a budget.
+        Calculate progress for a budget within a view window.
 
-        Args:
-            budget: Budget to check
-            as_of_date: Date to calculate through (defaults to today)
-
-        Returns:
-            BudgetProgress with spending details
+        When start_date/end_date are provided, the budget amount is pro-rated
+        to match the view window. Otherwise falls back to the budget's own period.
         """
-        if as_of_date is None:
-            as_of_date = date.today()
+        if start_date is None or end_date is None:
+            as_of = end_date or date.today()
+            start_date, end_date = self._get_period_dates(budget.period, as_of)
 
-        # Calculate period dates based on budget period
-        start_date, end_date = self._get_period_dates(budget.period, as_of_date)
+        prorated, is_prorated, label = self._prorate_budget_amount(
+            budget.period, budget.amount, start_date, end_date
+        )
 
-        # Get spending for this period
         spent = self.get_spending_for_period(budget.account_id, start_date, end_date)
 
-        # Calculate progress
-        remaining = budget.amount - spent
-        if budget.amount > 0:
-            percentage = (spent / budget.amount) * 100
+        remaining = prorated - spent
+        if prorated > 0:
+            percentage = (spent / prorated) * 100
         else:
             percentage = Decimal("0")
 
-        # Get account name
         account = self.account_repo.get_by_id(budget.account_id)
         account_name = account.name if account else "Unknown"
 
@@ -182,48 +197,59 @@ class BudgetService:
             budget_id=budget.id,
             account_id=budget.account_id,
             account_name=account_name,
-            budgeted_amount=budget.amount,
+            budgeted_amount=prorated,
             spent_amount=spent,
             remaining_amount=remaining,
             percentage_used=percentage.quantize(Decimal("0.1")),
-            is_over_budget=spent > budget.amount,
+            is_over_budget=spent > prorated,
+            period=budget.period,
+            is_prorated=is_prorated,
+            prorate_label=label,
+            rate_amount=budget.amount,
+            rate_period=budget.period,
         )
 
     def get_all_budget_progress(
-        self, as_of_date: Optional[date] = None
+        self,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
     ) -> List[BudgetProgress]:
         """
-        Get progress for all active budgets.
+        Get progress for all active budgets within a view window.
 
-        Args:
-            as_of_date: Date to calculate through
-
-        Returns:
-            List of BudgetProgress for all active budgets
+        Budgets are considered active if they overlap with the view window.
         """
-        budgets = self.get_active_budgets(as_of_date)
-        return [self.get_budget_progress(b, as_of_date) for b in budgets]
+        if start_date is not None and end_date is not None:
+            # Budgets are rates — show any budget not yet ended.
+            # Only effective_to gates visibility (budget was explicitly closed).
+            budgets = (
+                self.session.query(Budget)
+                .filter(
+                    (Budget.effective_to.is_(None)) | (Budget.effective_to >= start_date),
+                )
+                .all()
+            )
+        else:
+            budgets = self.get_active_budgets()
+        return [self.get_budget_progress(b, start_date, end_date) for b in budgets]
 
     def _get_period_dates(self, period: str, as_of_date: date) -> tuple[date, date]:
         """Get start and end dates for a budget period."""
         if period == "monthly":
             start = as_of_date.replace(day=1)
-            # End of month
             if as_of_date.month == 12:
                 end = as_of_date.replace(year=as_of_date.year + 1, month=1, day=1)
             else:
                 end = as_of_date.replace(month=as_of_date.month + 1, day=1)
-            from datetime import timedelta
             end = end - timedelta(days=1)
         elif period == "quarterly":
             quarter = (as_of_date.month - 1) // 3
             start = as_of_date.replace(month=quarter * 3 + 1, day=1)
             end_month = quarter * 3 + 3
-            if end_month > 12:
+            if end_month >= 12:
                 end = as_of_date.replace(year=as_of_date.year + 1, month=1, day=1)
             else:
                 end = as_of_date.replace(month=end_month + 1, day=1)
-            from datetime import timedelta
             end = end - timedelta(days=1)
         elif period == "yearly":
             start = as_of_date.replace(month=1, day=1)
@@ -233,6 +259,82 @@ class BudgetService:
             end = as_of_date
 
         return start, end
+
+    @staticmethod
+    def _detect_whole_months(start: date, end: date) -> Optional[int]:
+        """
+        Return the number of whole calendar months if the range is
+        first-of-month to last-of-month, else None.
+        """
+        if start.day != 1:
+            return None
+
+        last_day_of_end_month = calendar.monthrange(end.year, end.month)[1]
+        if end.day != last_day_of_end_month:
+            return None
+
+        return (end.year - start.year) * 12 + (end.month - start.month) + 1
+
+    @staticmethod
+    def _prorate_budget_amount(
+        budget_period: str,
+        budget_amount: Decimal,
+        view_start: date,
+        view_end: date,
+    ) -> tuple[Decimal, bool, str]:
+        """
+        Pro-rate a budget amount from its natural period to a view window.
+
+        Returns (prorated_amount, is_prorated, label).
+        """
+        period_months = _PERIOD_MONTHS.get(budget_period, 1)
+        abbrev = _PERIOD_ABBREV.get(budget_period, budget_period)
+
+        whole_months = BudgetService._detect_whole_months(view_start, view_end)
+
+        if whole_months is not None:
+            # Calendar-aware scaling
+            if whole_months == period_months:
+                # Exact match — no pro-rating needed
+                return budget_amount, False, ""
+
+            scale = Decimal(str(whole_months)) / Decimal(str(period_months))
+            prorated = (budget_amount * scale).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+            # Build label
+            if whole_months > period_months:
+                multiplier = whole_months // period_months
+                if whole_months % period_months == 0 and multiplier > 1:
+                    label = f"AED {budget_amount:,.2f}/{abbrev} \u00d7 {multiplier} {abbrev}"
+                else:
+                    label = f"AED {budget_amount:,.2f}/{abbrev} \u00d7 {whole_months}/{period_months} mo"
+            else:
+                divisor = period_months // whole_months
+                if period_months % whole_months == 0 and divisor > 1:
+                    label = f"AED {budget_amount:,.2f}/{abbrev} \u00f7 {divisor}"
+                else:
+                    label = f"AED {budget_amount:,.2f}/{abbrev} \u00d7 {whole_months}/{period_months} mo"
+
+            return prorated, True, label
+
+        # Irregular window — day-based pro-rating
+        view_days = (view_end - view_start).days + 1
+
+        # Approximate period days
+        if budget_period == "monthly":
+            period_days = Decimal("30.4375")
+        elif budget_period == "quarterly":
+            period_days = Decimal("91.3125")
+        elif budget_period == "yearly":
+            period_days = Decimal("365.25")
+        else:
+            period_days = Decimal("30.4375")
+
+        scale = Decimal(str(view_days)) / period_days
+        prorated = (budget_amount * scale).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        label = f"AED {budget_amount:,.2f}/{abbrev} pro-rated to {view_days} days"
+
+        return prorated, True, label
 
     def update_budget(
         self,
@@ -265,6 +367,29 @@ class BudgetService:
 
         self.session.flush()
         return budget
+
+    def get_overall_budget_utilization(
+        self, start_date: date, end_date: date
+    ) -> Decimal:
+        """
+        Calculate overall budget utilization percentage across all active budgets.
+
+        Pro-rates each budget amount to match the view window before summing.
+
+        Returns:
+            Decimal 0-100+ representing percentage of total budget used
+        """
+        progress_list = self.get_all_budget_progress(start_date, end_date)
+        if not progress_list:
+            return Decimal("0")
+
+        total_budgeted = sum(p.budgeted_amount for p in progress_list)
+        total_spent = sum(p.spent_amount for p in progress_list)
+
+        if total_budgeted == 0:
+            return Decimal("0")
+
+        return ((total_spent / total_budgeted) * 100).quantize(Decimal("0.1"))
 
     def delete_budget(self, budget_id: int) -> None:
         """

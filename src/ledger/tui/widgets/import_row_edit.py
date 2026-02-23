@@ -22,7 +22,11 @@ class ImportRowEditModal(ModalScreen):
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
+        Binding("ctrl+s", "save", "Save", show=False),
     ]
+
+    def action_save(self) -> None:
+        self._save()
 
     def __init__(self, db_manager: DatabaseManager, resolved_txn: ResolvedTransaction):
         super().__init__()
@@ -38,30 +42,30 @@ class ImportRowEditModal(ModalScreen):
 
         yield Container(
             Static("Edit Import Transaction", classes="modal-title"),
-            Static("", id="edit_error", classes="modal-error"),
+            Static("", id="error-display", classes="modal-error"),
             Vertical(
                 Label("Description"),
-                Input(value=txn.description, id="edit_description"),
+                Input(value=txn.description, id="edit_description", classes="form-field"),
                 Label("Date (YYYY-MM-DD)"),
-                Input(value=txn.date.isoformat(), id="edit_date"),
+                Input(value=txn.date.isoformat(), id="edit_date", placeholder="YYYY-MM-DD", classes="form-field"),
                 Horizontal(
                     Vertical(
                         Label("Debit (money in)"),
-                        Input(value=debit_val, placeholder="0.00", id="edit_debit"),
+                        Input(value=debit_val, placeholder="0.00", id="edit_debit", classes="form-field"),
                     ),
                     Vertical(
                         Label("Credit (money out)"),
-                        Input(value=credit_val, placeholder="0.00", id="edit_credit"),
+                        Input(value=credit_val, placeholder="0.00", id="edit_credit", classes="form-field"),
                     ),
                     classes="edit-amount-row",
                 ),
                 Label("Target Account"),
-                Select(options=[], id="edit_account_select", prompt="Select account"),
+                Select(options=[], id="edit_account_select", prompt="Select account", classes="form-field"),
                 Label("Notes (read-only)"),
                 Static(self._build_notes(), id="edit_notes", classes="import-edit-notes"),
                 Horizontal(
-                    Button("Cancel", variant="default", id="edit_cancel_btn"),
-                    Button("Save", variant="primary", id="edit_save_btn"),
+                    Button("Cancel [Esc]", variant="default", id="edit_cancel_btn"),
+                    Button("Save [^S]", variant="primary", id="edit_save_btn"),
                     classes="button-row",
                 ),
             ),
@@ -87,7 +91,7 @@ class ImportRowEditModal(ModalScreen):
                         break
 
         except Exception as e:
-            self.query_one("#edit_error", Static).update(f"Error: {e}")
+            self.show_error(f"Error: {e}")
 
     def _build_notes(self) -> str:
         txn = self.resolved_txn.transaction
@@ -109,8 +113,16 @@ class ImportRowEditModal(ModalScreen):
     def action_cancel(self) -> None:
         self.dismiss(None)
 
+    def show_error(self, message: str) -> None:
+        self.query_one("#error-display", Static).update(message)
+
+    def _clear_field_errors(self) -> None:
+        for widget in self.query(".field-error"):
+            widget.remove_class("field-error")
+
     def _save(self) -> None:
         """Save edits back to the ResolvedTransaction."""
+        self._clear_field_errors()
         description = self.query_one("#edit_description", Input).value.strip()
         date_str = self.query_one("#edit_date", Input).value.strip()
         debit_str = self.query_one("#edit_debit", Input).value.strip()
@@ -118,21 +130,21 @@ class ImportRowEditModal(ModalScreen):
         account_val = self.query_one("#edit_account_select", Select).value
 
         if not description:
-            self.query_one("#edit_error", Static).update("Description is required")
+            self.show_error("Description is required")
             return
 
         try:
             txn_date = date.fromisoformat(date_str)
         except ValueError:
-            self.query_one("#edit_error", Static).update("Invalid date format")
+            self.show_error("Invalid date format")
             return
 
         # Exactly one of debit/credit must be filled
         if debit_str and credit_str:
-            self.query_one("#edit_error", Static).update("Fill either Debit or Credit, not both")
+            self.show_error("Fill either Debit or Credit, not both")
             return
         if not debit_str and not credit_str:
-            self.query_one("#edit_error", Static).update("Enter a Debit or Credit amount")
+            self.show_error("Enter a Debit or Credit amount")
             return
 
         try:
@@ -141,7 +153,7 @@ class ImportRowEditModal(ModalScreen):
             else:
                 amount = -Decimal(credit_str)  # negative = money out
         except (InvalidOperation, ValueError):
-            self.query_one("#edit_error", Static).update("Invalid amount")
+            self.show_error("Invalid amount")
             return
 
         # Update the transaction

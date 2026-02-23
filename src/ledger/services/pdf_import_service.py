@@ -241,6 +241,7 @@ class PdfImportService:
                 )
                 if notes:
                     entry.notes = notes
+                count += 1
             else:
                 # Multi-posting transaction
                 posting_tuples = []
@@ -266,8 +267,7 @@ class PdfImportService:
                     )
                     if notes:
                         entry.notes = notes
-
-            count += 1
+                    count += 1
 
         self.session.flush()
         return count
