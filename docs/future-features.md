@@ -224,56 +224,118 @@ Cross-table invariants (service-layer enforced):
 
 ### 7.1 Contract
 
+The engine consumes **plain input dataclasses** (`ProfileInput`, `LineInput`,
+`OverrideInput`), not ORM objects. The service layer converts
+`ForecastProfile` / `ForecastLine` / `ForecastLineOverride` ORM rows into
+these inputs before calling `project()`. This keeps the engine decoupled
+from the database.
+
 ```python
+# --- inputs ---
 @dataclass
+class ProfileInput:
+    id: int
+    opening_balance: Decimal
+    horizon_months: int
+    start_date: date
+
+@dataclass
+class LineInput:
+    id: int
+    label: str
+    kind: str                     # 'inflow' | 'outflow'
+    amount: Decimal
+    start_month_offset: int
+    end_month_offset: int
+
+@dataclass
+class OverrideInput:
+    line_id: int
+    month_offset: int
+    amount: Decimal
+
+# --- adjuster hook (optional what-if transform) ---
+# Third arg is the CURRENT amount — i.e. the override-resolved amount if an
+# override applied to this (line, month), otherwise the line's base amount.
+# It is NOT always the base amount.
+Adjuster = Callable[[LineInput, int, Decimal], Decimal]
+
+# --- outputs (all frozen) ---
+@dataclass(frozen=True)
+class LineMonth:
+    month_offset: int
+    base_amount: Decimal
+    effective_amount: Decimal     # after override + adjuster; sign not yet applied
+    is_overridden: bool           # True iff an override replaced the base
+    is_adjusted: bool             # True iff the adjuster changed the value
+
+@dataclass(frozen=True)
 class MonthlyCashflow:
-    month_offset: int               # 0-indexed
-    year_month: str                 # "YYYY-MM"
+    month_offset: int             # 0-indexed
+    year_month: str               # "YYYY-MM"
     opening_balance: Decimal
     total_inflow: Decimal
     total_outflow: Decimal
     net: Decimal
     closing_balance: Decimal
-    line_contributions: dict[int, Decimal]   # line_id -> signed amount for this month
+    line_contributions: dict[int, LineMonth]   # line_id -> per-month detail
+    is_deficit: bool              # closing_balance < 0, precomputed
 
-@dataclass
+@dataclass(frozen=True)
+class LineSummary:
+    line_id: int
+    label: str
+    kind: str
+    total_contribution: Decimal   # SIGNED: positive for inflow, negative for outflow
+    active_months: int
+    override_count: int
+
+@dataclass(frozen=True)
 class CashflowProjection:
     profile_id: int
-    months: list[MonthlyCashflow]            # length == profile.horizon_months
+    months: list[MonthlyCashflow]              # length == profile.horizon_months
+    line_summaries: list[LineSummary]          # one per input line, in input order
     total_inflow: Decimal
     total_outflow: Decimal
     net: Decimal
     ending_balance: Decimal
-    deficit_months: int                      # count of months with closing_balance < 0
-    min_balance: Decimal                     # lowest closing_balance across the horizon
-    min_balance_month: int                   # month_offset at which min_balance occurs (earliest if tied)
+    deficit_months: int                        # count of months with closing_balance < 0
+    min_balance: Decimal                       # lowest closing_balance across the horizon
+                                               # (falls back to opening_balance if horizon == 0)
+    min_balance_month: int                     # earliest offset where min_balance occurs
 
 def project(
-    profile: ForecastProfile,
-    lines: Iterable[ForecastLine],
-    overrides: Iterable[ForecastLineOverride] = (),
+    profile: ProfileInput,
+    lines: Iterable[LineInput],
+    overrides: Iterable[OverrideInput] = (),
+    *,
+    adjuster: Adjuster | None = None,
 ) -> CashflowProjection: ...
 ```
 
 ### 7.2 Semantics
 
-Define a helper that resolves the effective amount of a line in a given month:
+Per-cell amount resolution, in order:
 
-```python
-def amount_for(line, m, override_by_line_month):
-    """Return the override amount for (line, m) if one exists, else line.amount."""
-    return override_by_line_month.get((line.id, m), line.amount)
-```
+1. **Base amount** — `line.amount`.
+2. **Override** — if `(line.id, m)` has an override, the override's amount replaces the base. Sets `is_overridden = True`.
+3. **Adjuster** — if an adjuster was passed, it's called as `adjuster(line, m, current_amount)` where `current_amount` is the override-resolved value. If the adjuster's return value differs from its input, that value replaces `current_amount` and `is_adjusted` is set to `True`. A no-op adjuster (returns the same value) leaves `is_adjusted = False`.
 
-- For each month `m` in `[0, horizon_months)`:
-  - `inflow = sum(amount_for(line, m, ovr) for line in lines if line.kind == 'inflow' and start <= m <= end)`
-  - `outflow = sum(amount_for(line, m, ovr) for line in lines if line.kind == 'outflow' and start <= m <= end)`
-  - `net = inflow - outflow`
-  - `closing_balance[m] = opening_balance[m] + net`
-  - `opening_balance[m + 1] = closing_balance[m]`
-- `opening_balance[0] = profile.opening_balance`.
-- `min_balance = min(m.closing_balance for m in months)`, `min_balance_month` = offset of the earliest occurrence.
-- Overrides outside `[start_month_offset, end_month_offset]` are silently ignored by the engine (they should have been prevented by the service layer; the engine is defensive, not authoritative). A zero override means the line contributes 0 that month.
+Aggregation (each month `m` in `[0, horizon_months)`):
+
+- `inflow = sum(effective_amount for line in lines if line.kind == 'inflow' and start <= m <= end)`
+- `outflow = sum(effective_amount for line in lines if line.kind == 'outflow' and start <= m <= end)`
+- `net = inflow - outflow`
+- `closing_balance[m] = opening_balance[m] + net`
+- `opening_balance[m + 1] = closing_balance[m]`; `opening_balance[0] = profile.opening_balance`.
+- `min_balance = min(m.closing_balance for m in months)`, `min_balance_month` = offset of the earliest occurrence. For a zero-horizon profile, `min_balance` falls back to `profile.opening_balance`.
+
+Defensive behaviour — the engine silently ignores:
+
+- Overrides whose `month_offset` is outside the parent line's `[start_month_offset, end_month_offset]` window.
+- Overrides whose `line_id` is not present in `lines`.
+
+The service layer is authoritative for validation; the engine does not re-check and does not raise. A zero-amount override means the line contributes 0 that month (it is still marked `is_overridden`).
 
 **Rounding policy.** Inputs are 2dp `Decimal`. Internal arithmetic in the engine is exact: addition and subtraction at a common precision produce no rounding error, so no rounding happens during aggregation. Quantization to 2dp happens only at the **display** and **export** boundaries, using `ROUND_HALF_UP` (intuitive for a single user reading their own numbers — matches a calculator). Engine tests assert exact `Decimal` values, not approximate equality. When division enters the engine post-MVP (percent-of-income, interest accrual), a rounding decision will be needed at each division site — revisit then.
 
@@ -293,6 +355,9 @@ def amount_for(line, m, override_by_line_month):
 - Zero override skips a month: a line with an override `amount=0` contributes nothing for that month; the line's base is not used.
 - Multiple overrides on one line: each applies only to its own month; order-independent.
 - Override outside window (defensive): an override whose month offset is outside the parent line's window is ignored; the engine does not crash.
+- Override references unknown `line_id` (defensive): silently ignored.
+- Adjuster: identity default, flat tax on inflows, conditional inflation shock, composes with override (both flags True), no-op adjuster leaves `is_adjusted = False`.
+- Zero-horizon: `months == []`, `ending_balance == min_balance == profile.opening_balance`, all totals zero.
 
 ---
 
