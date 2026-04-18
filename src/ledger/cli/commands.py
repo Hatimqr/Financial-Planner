@@ -1,11 +1,13 @@
 """Click-based CLI commands for Ledger TUI."""
 
+import json
 from pathlib import Path
 
 import click
 
 from ledger.db.connection import get_db_manager
 from ledger.services.export_service import ExportService
+from ledger.services.forecast_service import ForecastService
 
 
 @click.group()
@@ -318,6 +320,36 @@ def seed():
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         raise click.Abort()
+
+
+@cli.group()
+def forecast():
+    """Commands for forecasting profiles (cashflow planning)."""
+    pass
+
+
+@forecast.command("export")
+@click.argument("profile_id", type=int)
+def forecast_export(profile_id):
+    """Export a forecast profile as JSON to stdout.
+
+    \b
+    Example:
+      ledger forecast export 1 > nyuad.json
+    """
+    db_manager = get_db_manager()
+    try:
+        with db_manager.get_session() as session:
+            service = ForecastService(session)
+            payload = service.export_profile_to_dict(profile_id)
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.Abort()
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.Abort()
+
+    click.echo(json.dumps(payload, indent=2, sort_keys=False))
 
 
 if __name__ == "__main__":
