@@ -7,6 +7,7 @@ from sqlalchemy import engine_from_config, pool
 
 # Import all models to ensure they're registered with Base.metadata
 from ledger.db.models import Account, Base, Entry, Posting  # noqa: F401
+from ledger.db.forecast_models import ForecastLine, ForecastLineOverride, ForecastProfile  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
