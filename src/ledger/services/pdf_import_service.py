@@ -143,7 +143,7 @@ class PdfImportService:
         transactions: list[ResolvedTransaction],
         source_account_id: int,
     ) -> None:
-        """Mark duplicate transactions in-place."""
+        """Mark duplicate transactions in-place and exclude them by default."""
         for rt in transactions:
             txn = rt.transaction
             entries = self.entry_repo.get_by_date_range(txn.date, txn.date)
@@ -153,6 +153,7 @@ class PdfImportService:
                         if (posting.account_id == source_account_id
                                 and abs(posting.amount) == abs(txn.amount)):
                             rt.is_duplicate = True
+                            rt.included = False
                             break
                     if rt.is_duplicate:
                         break

@@ -288,17 +288,16 @@ def import_csv(file, source_account, target_account, preset, skip_duplicates):
 
 @cli.command()
 def init():
-    """Initialize database with a default chart of accounts.
+    """Initialize the database schema (empty, no default accounts).
 
-    Creates the SQLite database at data/ledger.db with a standard
-    account hierarchy (Assets, Liabilities, Income, Expenses, Equity).
-    Safe to run multiple times — skips existing accounts.
+    Creates the SQLite database at data/ledger.db with the schema only.
+    Safe to run multiple times.
     """
     from scripts.init_db import initialize_database
 
     try:
         initialize_database()
-        click.echo("✓ Database initialized with sample accounts")
+        click.echo("✓ Database initialized")
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         raise click.Abort()

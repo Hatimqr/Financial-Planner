@@ -20,6 +20,8 @@ from ledger.services.pdf_import_models import (
 class ImportRowEditModal(ModalScreen):
     """Modal for editing a single transaction from the import review."""
 
+    NEW_ACCOUNT_SENTINEL = "__new_account__"
+
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
         Binding("ctrl+s", "save", "Save", show=False),
@@ -74,17 +76,12 @@ class ImportRowEditModal(ModalScreen):
 
     def on_mount(self) -> None:
         try:
-            with self.db_manager.get_session() as session:
-                service = AccountService(session)
-                accounts = service.get_leaf_accounts()
-                self._account_options = [(acc.name, acc.name) for acc in accounts]
-
-            select = self.query_one("#edit_account_select", Select)
-            select.set_options(self._account_options)
+            self._reload_account_options()
 
             # Pre-select current account if it exists in options
             if self.resolved_txn.resolved_postings:
                 current = self.resolved_txn.resolved_postings[0].account_name
+                select = self.query_one("#edit_account_select", Select)
                 for name, val in self._account_options:
                     if val == current:
                         select.value = current
@@ -92,6 +89,34 @@ class ImportRowEditModal(ModalScreen):
 
         except Exception as e:
             self.show_error(f"Error: {e}")
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "edit_account_select" and event.value == self.NEW_ACCOUNT_SENTINEL:
+            event.select.value = Select.BLANK
+            self._open_new_account()
+
+    def _open_new_account(self) -> None:
+        from ledger.tui.widgets.account_form import AccountFormModal
+
+        def on_saved(result):
+            if result:
+                self.app.notify(f"Account '{result}' created!")
+                self._reload_account_options(auto_select_name=result)
+
+        self.app.push_screen(AccountFormModal(self.db_manager), on_saved)
+
+    def _reload_account_options(self, auto_select_name: str | None = None) -> None:
+        with self.db_manager.get_session() as session:
+            service = AccountService(session)
+            accounts = service.get_leaf_accounts()
+            self._account_options = [(acc.name, acc.name) for acc in accounts]
+
+        options = list(self._account_options)
+        options.append(("+ Create New Account...", self.NEW_ACCOUNT_SENTINEL))
+        select = self.query_one("#edit_account_select", Select)
+        select.set_options(options)
+        if auto_select_name:
+            select.value = auto_select_name
 
     def _build_notes(self) -> str:
         txn = self.resolved_txn.transaction

@@ -17,6 +17,8 @@ from ledger.services.budget_service import BudgetService
 class BudgetFormModal(ModalScreen):
     """Modal dialog for creating or editing a budget."""
 
+    NEW_ACCOUNT_SENTINEL = "__new_account__"
+
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
         Binding("ctrl+s", "save", "Save", show=False),
@@ -72,25 +74,54 @@ class BudgetFormModal(ModalScreen):
     def on_mount(self) -> None:
         """Load expense accounts and budget data (if editing) when mounted."""
         try:
-            with self.db_manager.get_session() as session:
-                service = AccountService(session)
-                accounts = service.get_accounts_by_type("expense")
-                self.account_options = [(acc.name, str(acc.id)) for acc in accounts]
+            self._reload_account_options()
 
-                account_select = self.query_one("#account_select", Select)
-                account_select.set_options(self.account_options)
-
-                # If editing, pre-fill fields
-                if self.budget_id is not None:
+            # If editing, pre-fill fields
+            if self.budget_id is not None:
+                with self.db_manager.get_session() as session:
                     budget_service = BudgetService(session)
                     budget = budget_service.get_budget_by_id(self.budget_id)
                     if budget:
-                        account_select.value = str(budget.account_id)
+                        self.query_one("#account_select", Select).value = str(budget.account_id)
                         self.query_one("#amount_input", Input).value = str(budget.amount)
                         self.query_one("#period_select", Select).value = budget.period
 
         except Exception as e:
             self.show_error(f"Error loading data: {e}")
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "account_select" and event.value == self.NEW_ACCOUNT_SENTINEL:
+            event.select.value = Select.BLANK
+            self._open_new_account()
+
+    def _open_new_account(self) -> None:
+        from ledger.tui.widgets.account_form import AccountFormModal
+
+        def on_saved(result):
+            if result:
+                self.app.notify(f"Account '{result}' created!")
+                self._reload_account_options(auto_select_name=result)
+
+        self.app.push_screen(AccountFormModal(self.db_manager), on_saved)
+
+    def _reload_account_options(self, auto_select_name: str | None = None) -> None:
+        with self.db_manager.get_session() as session:
+            service = AccountService(session)
+            accounts = service.get_accounts_by_type("expense")
+            self.account_options = [(acc.name, str(acc.id)) for acc in accounts]
+
+            new_account_id = None
+            if auto_select_name:
+                account = service.get_account_by_name(auto_select_name)
+                if account:
+                    new_account_id = str(account.id)
+
+        options = list(self.account_options)
+        options.append(("+ Create New Account...", self.NEW_ACCOUNT_SENTINEL))
+        account_select = self.query_one("#account_select", Select)
+        account_select.set_options(options)
+        if new_account_id:
+            account_select.value = new_account_id
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""

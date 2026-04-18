@@ -19,6 +19,8 @@ class AccountListScreen(Screen):
 
     BINDINGS = [
         Binding("n", "new_account", "New Account"),
+        Binding("e", "edit_account", "Edit"),
+        Binding("backspace", "delete_account", "Delete"),
         Binding("v", "toggle_view", "Toggle View"),
         Binding("f5", "refresh", "Refresh"),
     ]
@@ -424,3 +426,74 @@ class AccountListScreen(Screen):
                 self.notify(f"Account '{account_name}' created!")
 
         self.app.push_screen(AccountFormModal(self.db_manager), on_account_saved)
+
+    def _get_selected_account_id(self) -> int | None:
+        """Return the account_id of the selected row, in either view."""
+        if self._tree_view:
+            tree = self.query_one("#accounts_tree", Tree)
+            node = tree.cursor_node
+            if node is None or node.data is None:
+                return None
+            return int(node.data)
+        table = self.query_one("#accounts_table", DataTable)
+        if table.cursor_row is not None and 0 <= table.cursor_row < len(self._account_ids):
+            return self._account_ids[table.cursor_row]
+        return None
+
+    def action_edit_account(self) -> None:
+        account_id = self._get_selected_account_id()
+        if account_id is None:
+            self.notify("No account selected", severity="warning")
+            return
+
+        from ledger.tui.widgets.account_form import AccountFormModal
+
+        def on_saved(result):
+            if result == AccountFormModal.DELETE_SENTINEL:
+                self._delete_account_by_id(account_id)
+            elif result:
+                self.load_accounts()
+                self.notify(f"Account '{result}' updated")
+
+        self.app.push_screen(
+            AccountFormModal(self.db_manager, account_id=account_id),
+            on_saved,
+        )
+
+    def action_delete_account(self) -> None:
+        account_id = self._get_selected_account_id()
+        if account_id is None:
+            self.notify("No account selected", severity="warning")
+            return
+        self._delete_account_by_id(account_id)
+
+    def _delete_account_by_id(self, account_id: int) -> None:
+        with self.db_manager.get_session() as session:
+            service = AccountService(session)
+            account = service.get_account_by_id(account_id)
+            if account is None:
+                self.notify("Account not found", severity="error")
+                return
+            name = account.name
+
+        from ledger.tui.widgets.confirm_dialog import ConfirmDialog
+
+        def on_confirmed(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            try:
+                with self.db_manager.get_session() as session:
+                    AccountService(session).archive_account(account_id)
+                self.load_accounts()
+                self.notify(f"Account '{name}' deleted", severity="information")
+            except ValueError as e:
+                self.notify(str(e), severity="error")
+            except Exception as e:
+                self.notify(f"Error deleting account: {e}", severity="error")
+
+        self.app.push_screen(
+            ConfirmDialog(
+                f"Delete '{name}'? Historical transactions are preserved."
+            ),
+            on_confirmed,
+        )
