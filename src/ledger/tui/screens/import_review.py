@@ -2,20 +2,26 @@
 
 from pathlib import Path
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Input, Label, Select, Static
+from textual.widgets import Button, DataTable, Input, Select, Static
 
 from ledger.db.connection import DatabaseManager
 from ledger.services.account_service import AccountService
 from ledger.services.pdf_import_models import ResolvedTransaction
 from ledger.services.pdf_import_service import PdfImportService
 from ledger.tui.widgets.app_header import AppHeader
+from ledger.tui.widgets.status_footer import (
+    FooterHintsMixin,
+    StatusFooter,
+    format_hints,
+)
 
 
-class ImportReviewScreen(Screen):
+class ImportReviewScreen(FooterHintsMixin, Screen):
     """Screen for reviewing parsed statement transactions before import."""
 
     BINDINGS = [
@@ -26,6 +32,33 @@ class ImportReviewScreen(Screen):
         Binding("n", "new_account", "New Acct", show=True),
     ]
 
+    NEW_ACCOUNT_SENTINEL = "__new_account__"
+
+    _footer_id = "import-footer"
+    _default_hints = format_hints([
+        ("Space", " toggle"),
+        ("E", "dit"),
+        ("N", "ew acct"),
+        ("C", "onfirm"),
+        ("Esc", " back"),
+    ])
+    _hint_map = {
+        "file_path_input": format_hints([
+            ("↵", " load"),
+            ("Tab", " next"),
+            ("Esc", " back"),
+        ]),
+        "source_account_select": format_hints([
+            ("↑↓", " options"),
+            ("↵", " select"),
+            ("Tab", " next"),
+        ]),
+        "load_btn": format_hints([
+            ("↵", " load file"),
+            ("Esc", " back"),
+        ]),
+    }
+
     def __init__(self, db_manager: DatabaseManager, file_path: str | None = None):
         super().__init__()
         self.db_manager = db_manager
@@ -35,56 +68,49 @@ class ImportReviewScreen(Screen):
         self._source_account_id: int | None = None
 
     def compose(self) -> ComposeResult:
-        yield AppHeader("Import")
+        yield AppHeader("Import", show_period_bar=False)
         yield Container(
             Horizontal(
-                Vertical(
-                    Label("File Path"),
-                    Input(
-                        placeholder="/path/to/statement.json",
-                        id="file_path_input",
-                        value=self.initial_file_path or "",
-                    ),
-                    id="import-file-field",
+                Input(
+                    placeholder="Statement file path (.json) — Enter to load",
+                    id="file_path_input",
+                    value=self.initial_file_path or "",
                 ),
-                Vertical(
-                    Label("Source Account (your bank)"),
-                    Select(options=[], id="source_account_select", prompt="Select account"),
-                    id="import-source-field",
-                ),
+                Select(options=[], id="source_account_select", prompt="Source account"),
                 Button("Load", variant="primary", id="load_btn"),
                 id="import-header",
                 classes="import-header-row",
             ),
-            Static("", id="import_info"),
-            Static("", id="import_error", classes="modal-error"),
+            Static("", id="import_info", classes="screen-subtitle"),
+            Static("", id="import_error"),
+            Static(
+                "Load a statement file above to preview transactions.",
+                id="import-empty-state",
+                classes="import-empty-state",
+            ),
             DataTable(id="import_review_table", zebra_stripes=True),
-            Static("", id="import_summary"),
             Horizontal(
                 Button("Confirm Import", variant="success", id="confirm_btn", disabled=True),
-                Button("Cancel", variant="default", id="cancel_btn"),
                 classes="button-row",
             ),
             id="import-container",
         )
-
-    NEW_ACCOUNT_SENTINEL = "__new_account__"
+        yield StatusFooter(id="import-footer")
 
     def on_mount(self) -> None:
-        # Load account options
         self._reload_account_options()
 
-
-        # Set up table columns
         table = self.query_one("#import_review_table", DataTable)
         table.cursor_type = "row"
         table.add_columns("✓", "Date", "Description", "Account", "Debit", "Credit", "Status")
+        # Empty state visible until data loads.
+        table.display = False
 
-        self.query_one("#import_review_table", DataTable).focus()
+        # Focus file-path first so Enter-to-load and footer hints "just work".
+        self.query_one("#file_path_input", Input).focus()
+        self._refresh_footer_hints()
 
-        # Auto-load if file path was provided
         if self.initial_file_path:
-            # Defer to allow mount to complete
             self.set_timer(0.1, self._auto_load)
 
     def _auto_load(self) -> None:
@@ -92,21 +118,22 @@ class ImportReviewScreen(Screen):
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "source_account_select":
-            # Clear error highlight when user makes a selection
             event.select.remove_class("field-error")
             self._show_error("")
-            # Intercept the "new account" option
             if event.value == self.NEW_ACCOUNT_SENTINEL:
                 event.select.value = Select.BLANK
                 self.action_new_account()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "cancel_btn":
-            self.action_go_back()
-        elif event.button.id == "load_btn":
+        if event.button.id == "load_btn":
             self._do_load()
         elif event.button.id == "confirm_btn":
             self.action_confirm_import()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Enter on the file-path input triggers load."""
+        if event.input.id == "file_path_input":
+            self._do_load()
 
     def _do_load(self) -> None:
         """Load and parse the statement file."""
@@ -145,17 +172,23 @@ class ImportReviewScreen(Screen):
                 self._resolved = service.resolve_accounts(self._statement)
                 service.check_duplicates(self._resolved, self._source_account_id)
 
-            # Show statement info
+            # Statement metadata → quiet subtitle.
             info = self.query_one("#import_info", Static)
             period = ""
             if self._statement.statement_period_from and self._statement.statement_period_to:
-                period = f" | Period: {self._statement.statement_period_from} to {self._statement.statement_period_to}"
+                period = (
+                    f" · {self._statement.statement_period_from}"
+                    f" → {self._statement.statement_period_to}"
+                )
             info.update(
-                f"Bank: {self._statement.bank_name} | "
-                f"Currency: {self._statement.currency}{period} | "
-                f"Opening: {self._statement.opening_balance:,.2f} | "
-                f"Closing: {self._statement.closing_balance:,.2f}"
+                f"{self._statement.bank_name} · {self._statement.currency}{period}"
+                f" · Opening {self._statement.opening_balance:,.2f}"
+                f" · Closing {self._statement.closing_balance:,.2f}"
             )
+
+            # Swap empty state for the table.
+            self.query_one("#import-empty-state", Static).display = False
+            self.query_one("#import_review_table", DataTable).display = True
 
             self._refresh_table()
             self.query_one("#import_review_table", DataTable).focus()
@@ -164,39 +197,45 @@ class ImportReviewScreen(Screen):
         except Exception as e:
             self.notify(f"Error loading file: {e}", severity="error")
 
+    def _status_cell(self, status_parts: list[str]) -> Text:
+        """Render the Status column as coloured Rich Text."""
+        if not status_parts:
+            text = Text("OK")
+            text.stylize("dim")
+            return text
+        text = Text()
+        for i, part in enumerate(status_parts):
+            if i > 0:
+                text.append(" ", style="dim")
+            if part == "NEW":
+                text.append(part, style="bold yellow")
+            elif part == "DUP":
+                text.append(part, style="dim")
+            else:
+                text.append(part)
+        return text
+
     def _refresh_table(self) -> None:
         """Refresh the review table with current resolved transactions."""
         table = self.query_one("#import_review_table", DataTable)
         table.clear()
 
-        new_accounts = 0
-        duplicates = 0
-        included = 0
-        total_amount = 0
-
         for rt in self._resolved:
             txn = rt.transaction
             check = "✓" if rt.included else " "
 
-            # Determine status
             status_parts = []
             if rt.is_duplicate:
                 status_parts.append("DUP")
-                duplicates += 1
             for rp in rt.resolved_postings:
                 if rp.status in ("new_with_parent", "new_tree"):
                     status_parts.append("NEW")
-                    new_accounts += 1
                     break
-            status = " ".join(status_parts) if status_parts else "OK"
 
-            # Account display
-            account_display = rt.resolved_postings[0].account_name if rt.resolved_postings else "-"
-            # Shorten for display
-            if len(account_display) > 30:
-                account_display = "..." + account_display[-27:]
+            account_display = (
+                rt.resolved_postings[0].account_name if rt.resolved_postings else "-"
+            )
 
-            # Debit = money in (positive), Credit = money out (negative)
             if txn.amount > 0:
                 debit_str = f"{txn.amount:,.2f}"
                 credit_str = ""
@@ -207,28 +246,37 @@ class ImportReviewScreen(Screen):
             table.add_row(
                 check,
                 txn.date.strftime("%Y-%m-%d"),
-                txn.description[:35] if len(txn.description) > 35 else txn.description,
+                txn.description,
                 account_display,
                 debit_str,
                 credit_str,
-                status,
+                self._status_cell(status_parts),
             )
 
-            if rt.included:
-                included += 1
-                total_amount += float(txn.amount)
+        self._update_summary()
 
-        # Update summary
-        summary = self.query_one("#import_summary", Static)
-        summary.update(
-            f"Total: {len(self._resolved)} | "
-            f"Included: {included} | "
-            f"Duplicates: {duplicates} | "
-            f"New accounts: {new_accounts} | "
-            f"Net amount: {total_amount:,.2f}"
+    def _update_summary(self) -> None:
+        """Update the footer summary + confirm-button enabled state."""
+        included = sum(1 for rt in self._resolved if rt.included)
+        duplicates = sum(1 for rt in self._resolved if rt.is_duplicate)
+        new_accounts = sum(
+            1
+            for rt in self._resolved
+            if any(
+                rp.status in ("new_with_parent", "new_tree")
+                for rp in rt.resolved_postings
+            )
+        )
+        total_amount = sum(
+            float(rt.transaction.amount) for rt in self._resolved if rt.included
         )
 
-        # Enable confirm button if there are included transactions
+        footer = self.query_one("#import-footer", StatusFooter)
+        footer.set_summary(
+            f"{len(self._resolved)} txns · {included} included · "
+            f"{duplicates} dup · {new_accounts} new acct · "
+            f"Net {total_amount:,.2f}"
+        )
         self.query_one("#confirm_btn", Button).disabled = included == 0
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
@@ -242,34 +290,11 @@ class ImportReviewScreen(Screen):
             cursor_pos = table.cursor_row
             rt = self._resolved[cursor_pos]
             rt.included = not rt.included
-            # Update just the first column instead of rebuilding the whole table
             row_key = table._row_order[cursor_pos]  # noqa: SLF001
-            table.update_cell(row_key, table._column_order[0], "✓" if rt.included else " ")  # noqa: SLF001
+            table.update_cell(
+                row_key, table._column_order[0], "✓" if rt.included else " "  # noqa: SLF001
+            )
             self._update_summary()
-
-    def _update_summary(self) -> None:
-        """Update the summary line and confirm button without rebuilding the table."""
-        included = sum(1 for rt in self._resolved if rt.included)
-        duplicates = sum(1 for rt in self._resolved if rt.is_duplicate)
-        new_accounts = 0
-        total_amount = 0.0
-        for rt in self._resolved:
-            for rp in rt.resolved_postings:
-                if rp.status in ("new_with_parent", "new_tree"):
-                    new_accounts += 1
-                    break
-            if rt.included:
-                total_amount += float(rt.transaction.amount)
-
-        summary = self.query_one("#import_summary", Static)
-        summary.update(
-            f"Total: {len(self._resolved)} | "
-            f"Included: {included} | "
-            f"Duplicates: {duplicates} | "
-            f"New accounts: {new_accounts} | "
-            f"Net amount: {total_amount:,.2f}"
-        )
-        self.query_one("#confirm_btn", Button).disabled = included == 0
 
     def action_edit_row(self) -> None:
         """Edit the selected transaction."""
@@ -304,7 +329,6 @@ class ImportReviewScreen(Screen):
             self.notify("No transactions selected for import", severity="warning")
             return
 
-        # Collect new accounts for confirmation
         new_accounts = set()
         for rt in included:
             for rp in rt.resolved_postings:
@@ -348,7 +372,6 @@ class ImportReviewScreen(Screen):
         def on_saved(result):
             if result:
                 self.notify(f"Account '{result}' created!")
-                # Find the new account's ID and auto-select it
                 try:
                     with self.db_manager.get_session() as session:
                         service = AccountService(session)
@@ -361,11 +384,7 @@ class ImportReviewScreen(Screen):
         self.app.push_screen(AccountFormModal(self.db_manager), on_saved)
 
     def _reload_account_options(self, auto_select_id: str | None = None) -> None:
-        """Reload the source account select options.
-
-        Args:
-            auto_select_id: If provided, auto-select this account ID after reload.
-        """
+        """Reload the source account select options."""
         try:
             with self.db_manager.get_session() as session:
                 service = AccountService(session)

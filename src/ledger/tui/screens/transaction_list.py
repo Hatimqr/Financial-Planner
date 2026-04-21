@@ -2,10 +2,12 @@
 
 from decimal import Decimal
 
+from rich import box
+from rich.table import Table
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container
+from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import DataTable, Input, Static
 
@@ -13,9 +15,26 @@ from ledger.db.connection import DatabaseManager
 from ledger.repositories.entry import EntryRepository
 from ledger.services.report_service import ReportService
 from ledger.tui.widgets.app_header import AppHeader
+from ledger.tui.widgets.status_footer import (
+    FooterHintsMixin,
+    StatusFooter,
+    format_hints,
+)
 
 
-class TransactionListScreen(Screen):
+def _format_leg(postings: list) -> str:
+    """Format one side of a double-entry (debit or credit) as a column label.
+
+    Single posting → leaf name. Multiple postings → first leaf name + " +N".
+    """
+    if not postings:
+        return ""
+    head = postings[0].account.leaf_name
+    extra = len(postings) - 1
+    return f"{head} +{extra}" if extra else head
+
+
+class TransactionListScreen(FooterHintsMixin, Screen):
     """Screen showing list of all transactions."""
 
     BINDINGS = [
@@ -26,6 +45,41 @@ class TransactionListScreen(Screen):
         Binding("backspace", "delete_transaction", "Delete"),
         Binding("ctrl+slash", "focus_search", "Search"),
     ]
+
+    _footer_id = "transactions-footer"
+    _default_hints = format_hints([
+        ("N", "ew"),
+        ("E", "dit"),
+        ("↵", " details"),
+        ("⌫", " delete"),
+        ("^/", " search"),
+    ])
+    _hint_map = {
+        "search_input": format_hints([("Esc", " clear & exit search")]),
+    }
+    _detail_open_hints = format_hints([
+        ("↵", " close"),
+        ("Esc", " close"),
+        ("E", "dit"),
+        ("⌫", " delete"),
+    ])
+
+    def _refresh_footer_hints(self, focused=None) -> None:
+        super()._refresh_footer_hints(focused)
+        # Override only when the pane is visible AND the search box isn't the
+        # focused widget — otherwise the search-specific hint gets clobbered.
+        if focused is None:
+            focused = getattr(self.app, "focused", None)
+        focused_id = getattr(focused, "id", "") or ""
+        if focused_id == "search_input":
+            return
+        try:
+            pane = self.query_one("#transactions-detail-pane")
+            if pane.display:
+                footer = self.query_one(f"#{self._footer_id}", StatusFooter)
+                footer.set_hints(self._detail_open_hints)
+        except Exception:
+            pass
 
     def __init__(
         self,
@@ -42,22 +96,47 @@ class TransactionListScreen(Screen):
     def compose(self) -> ComposeResult:
         yield AppHeader("Transactions")
         yield Container(
-            Input(placeholder="Search transactions... (Ctrl+/ to focus)", id="search_input"),
-            DataTable(id="transactions_table", zebra_stripes=True),
-            Static("", id="transactions-summary", classes="transactions-summary"),
+            Horizontal(
+                Vertical(
+                    Input(
+                        placeholder="Search transactions... (Esc to exit)",
+                        id="search_input",
+                    ),
+                    DataTable(id="transactions_table", zebra_stripes=True),
+                    id="transactions-main",
+                ),
+                Vertical(
+                    Static("", id="detail-header", classes="tx-detail-header"),
+                    Static("", id="detail-postings", classes="tx-detail-postings"),
+                    Static("", id="detail-notes", classes="tx-detail-notes"),
+                    id="transactions-detail-pane",
+                ),
+                id="transactions-split",
+            ),
             id="transactions-container",
         )
+        yield StatusFooter(id="transactions-footer")
 
     def on_mount(self) -> None:
         table = self.query_one("#transactions_table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("Date", "Description", "Payee", "Account", "Amount")
-        # Pre-fill search if initialized with query
+        table.add_column("Date ↓", key="date", width=12)
+        table.add_column("Description", key="description")
+        table.add_column("Debit", key="debit", width=22)
+        table.add_column("Credit", key="credit", width=22)
+        table.add_column("Amount", key="amount", width=16)
+        # Search is hidden until Ctrl+/ — keep visible only if pre-filled from init.
+        search_input = self.query_one("#search_input", Input)
         if self.search_query:
-            self.query_one("#search_input", Input).value = self.search_query
+            search_input.value = self.search_query
+        else:
+            search_input.display = False
+        # Detail pane collapsed by default; Enter toggles, Esc collapses.
+        self.query_one("#transactions-detail-pane").display = False
         self._search_timer = None
         self.load_transactions()
         self.query_one("#transactions_table", DataTable).focus()
+        self._refresh_footer_hints()
 
     def load_transactions(self) -> None:
         """Load transactions from database and display in table."""
@@ -92,44 +171,41 @@ class TransactionListScreen(Screen):
                 for entry in entries:
                     entry_full = entry_repo.get_with_postings(entry.id)
                     if entry_full and entry_full.postings:
-                        # Find the primary account and amount for display
-                        primary_posting = None
-                        for posting in entry_full.postings:
-                            if posting.account.type in ("expense", "income"):
-                                primary_posting = posting
-                                break
+                        debit_postings = [p for p in entry_full.postings if p.amount > 0]
+                        credit_postings = [p for p in entry_full.postings if p.amount < 0]
 
-                        if not primary_posting:
-                            primary_posting = entry_full.postings[0]
+                        debit_label = _format_leg(debit_postings)
+                        credit_label = _format_leg(credit_postings)
 
-                        # Format amount with color
-                        amount = abs(primary_posting.amount)
-                        if primary_posting.account.type == "expense":
-                            amount_text = Text(f"-AED {amount:,.2f}", style="red")
-                            net_total -= amount
-                        elif primary_posting.account.type == "income":
-                            amount_text = Text(f"+AED {amount:,.2f}", style="green")
-                            net_total += amount
+                        # Entry total = sum of debit-side magnitudes.
+                        total = sum((p.amount for p in debit_postings), Decimal("0"))
+
+                        # Choose sign/color from account types present.
+                        types = {p.account.type for p in entry_full.postings}
+                        if "expense" in types:
+                            amount_text = Text(f"-AED {total:,.2f}", style="red")
+                            net_total -= total
+                        elif "income" in types:
+                            amount_text = Text(f"+AED {total:,.2f}", style="green")
+                            net_total += total
                         else:
-                            amount_text = Text(f"AED {amount:,.2f}")
-
-                        account_display = primary_posting.account.leaf_name
+                            amount_text = Text(f"AED {total:,.2f}")
 
                         table.add_row(
                             entry.date.strftime("%Y-%m-%d"),
                             entry.description[:35] + "..." if len(entry.description) > 35 else entry.description,
-                            entry.payee or "",
-                            account_display,
+                            debit_label,
+                            credit_label,
                             amount_text,
                         )
                         self._entry_ids.append(entry.id)
 
                 count = len(self._entry_ids)
 
-                # Update summary line
+                # Update footer summary
                 net_sign = "+" if net_total >= 0 else ""
-                summary = self.query_one("#transactions-summary", Static)
-                summary.update(f"{count} transactions | Net: {net_sign}AED {net_total:,.2f}")
+                footer = self.query_one("#transactions-footer", StatusFooter)
+                footer.set_summary(f"{count} transactions · Net: {net_sign}AED {net_total:,.2f}")
 
         except Exception as e:
             self.notify(f"Error loading transactions: {e}", severity="error")
@@ -176,19 +252,106 @@ class TransactionListScreen(Screen):
         )
 
     def action_view_transaction(self) -> None:
-        """View details of the selected transaction."""
+        """Toggle the inline detail pane for the selected transaction."""
+        pane = self.query_one("#transactions-detail-pane")
+        if pane.display:
+            pane.display = False
+            self._refresh_footer_hints()
+            return
         entry_id = self._get_selected_entry_id()
         if entry_id is None:
             self.notify("No transaction selected", severity="warning")
             return
+        self._render_detail(entry_id)
+        pane.display = True
+        self._refresh_footer_hints()
 
-        from ledger.tui.widgets.transaction_detail import TransactionDetailModal
+    def _render_detail(self, entry_id: int) -> None:
+        """Populate the inline detail pane for an entry."""
+        header = self.query_one("#detail-header", Static)
+        notes = self.query_one("#detail-notes", Static)
+        postings = self.query_one("#detail-postings", Static)
+        try:
+            with self.db_manager.get_session() as session:
+                entry_repo = EntryRepository(session)
+                entry = entry_repo.get_with_postings(entry_id)
+                if not entry:
+                    header.update("Transaction not found")
+                    postings.update("")
+                    notes.update("")
+                    return
 
-        def on_detail_dismissed(result):
-            if result == "edit":
-                self.action_edit_transaction()
+                title = Text(entry.description, style="bold")
+                meta = Text()
+                meta.append(entry.date.strftime("%Y-%m-%d"), style="dim")
+                meta.append("  ·  ", style="dim")
+                meta.append(entry.status.capitalize(), style="dim")
+                if entry.payee:
+                    meta.append("  ·  ", style="dim")
+                    meta.append(f"Payee: {entry.payee}", style="dim")
+                header.update(Text.assemble(title, "\n", meta))
 
-        self.app.push_screen(TransactionDetailModal(self.db_manager, entry_id), on_detail_dismissed)
+                table = Table(
+                    box=box.SIMPLE,
+                    show_edge=False,
+                    show_header=True,
+                    header_style="dim bold",
+                    padding=(0, 1),
+                    expand=True,
+                )
+                table.add_column("Account", no_wrap=False, ratio=3)
+                table.add_column("Debit", justify="right", no_wrap=True)
+                table.add_column("Credit", justify="right", no_wrap=True)
+                table.add_column("Memo", no_wrap=False, ratio=2)
+                for posting in entry.postings:
+                    debit = (
+                        f"AED {posting.amount:,.2f}" if posting.amount > 0 else ""
+                    )
+                    credit = (
+                        f"AED {abs(posting.amount):,.2f}"
+                        if posting.amount < 0
+                        else ""
+                    )
+                    table.add_row(
+                        Text(posting.account.name),
+                        Text(debit, style="green" if debit else ""),
+                        Text(credit, style="red" if credit else ""),
+                        Text(posting.memo or "", style="dim"),
+                    )
+                postings.update(table)
+
+                if entry.notes:
+                    notes_text = Text()
+                    notes_text.append("Notes  ", style="dim bold")
+                    notes_text.append(entry.notes, style="")
+                    notes.update(notes_text)
+                else:
+                    notes.update("")
+        except Exception as e:
+            header.update(f"Error: {e}")
+            postings.update("")
+            notes.update("")
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        """Keep the detail pane in sync with the highlighted row while visible."""
+        if event.data_table.id != "transactions_table":
+            return
+        pane = self.query_one("#transactions-detail-pane")
+        if not pane.display:
+            return
+        entry_id = self._get_selected_entry_id()
+        if entry_id is not None:
+            self._render_detail(entry_id)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Enter on the transactions table toggles the inline detail pane.
+
+        DataTable consumes Enter to fire RowSelected, so the screen-level
+        ``enter`` binding never reaches us — handle it here instead.
+        """
+        if event.data_table.id != "transactions_table":
+            return
+        self.action_view_transaction()
 
     def _get_selected_description(self) -> str:
         """Get the description of the currently selected transaction."""
@@ -226,7 +389,9 @@ class TransactionListScreen(Screen):
         )
 
     def action_focus_search(self) -> None:
-        self.query_one("#search_input", Input).focus()
+        search_input = self.query_one("#search_input", Input)
+        search_input.display = True
+        search_input.focus()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "search_input":
@@ -244,12 +409,20 @@ class TransactionListScreen(Screen):
         self.load_transactions()
 
     def on_key(self, event) -> None:
-        """Handle Escape in search input to clear and unfocus."""
-        if event.key == "escape":
-            search_input = self.query_one("#search_input", Input)
-            if search_input.has_focus:
-                search_input.value = ""
-                self.search_query = None
-                self.load_transactions()
-                self.query_one("#transactions_table", DataTable).focus()
-                event.prevent_default()
+        """Escape: clear+hide search if focused, else collapse the detail pane."""
+        if event.key != "escape":
+            return
+        search_input = self.query_one("#search_input", Input)
+        if search_input.has_focus:
+            search_input.value = ""
+            self.search_query = None
+            self.load_transactions()
+            search_input.display = False
+            self.query_one("#transactions_table", DataTable).focus()
+            event.prevent_default()
+            return
+        pane = self.query_one("#transactions-detail-pane")
+        if pane.display:
+            pane.display = False
+            self._refresh_footer_hints()
+            event.prevent_default()

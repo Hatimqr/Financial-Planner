@@ -11,6 +11,7 @@ from textual.widgets import Input, ProgressBar, Static
 from ledger.db.connection import DatabaseManager
 from ledger.services.budget_service import BudgetProgress, BudgetService
 from ledger.tui.widgets.app_header import AppHeader
+from ledger.tui.widgets.status_footer import StatusFooter
 
 
 def _breadcrumb(account_name: str) -> tuple[str, str]:
@@ -139,6 +140,7 @@ class BudgetsScreen(Screen):
             VerticalScroll(id="budget-list"),
             id="budget-container",
         )
+        yield StatusFooter(id="budgets-footer")
 
     def on_mount(self) -> None:
         """Load budgets on mount."""

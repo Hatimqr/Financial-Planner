@@ -75,9 +75,11 @@ class PeriodBar(Widget):
                 else:
                     bar.append(f" {period.label} ", style="dim")
 
-        # [+] manage indicator
+        # [P]eriods affordance — maps to the global `p` keybinding (app.py).
         bar.append("   ", style="")
-        bar.append(" + ", style="dim bold")
+        bar.append("[", style="dim")
+        bar.append("P", style="bold")
+        bar.append("]eriods", style="dim")
 
         # Date range on the right
         active_period = None

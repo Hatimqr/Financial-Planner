@@ -21,6 +21,7 @@ from ledger.db.connection import DatabaseManager
 from ledger.services.forecast_service import ForecastService
 from ledger.tui.widgets._forecast_month import offset_to_ym_label
 from ledger.tui.widgets.app_header import AppHeader
+from ledger.tui.widgets.chart_format import format_axis_value, nice_ticks
 from ledger.tui.widgets.confirm_dialog import ConfirmDialog
 from ledger.tui.widgets.forecast_investment_form import (
     InvestmentFormModal,
@@ -43,14 +44,45 @@ from ledger.tui.widgets.forecast_profile_form import (
     ForecastProfileFormModal,
     ProfileFormResult,
 )
+from ledger.tui.widgets.status_footer import (
+    FooterHintsMixin,
+    StatusFooter,
+    format_hints,
+)
 
-# Muted palette — kept intentionally soft so large numbers of deficit cells
-# don't turn the screen into a traffic light. Shared with the month-
-# contributions modal.
-COLOR_POS = "#87af87"  # pale green — inflows / positive net
-COLOR_NEG = "#d78787"  # soft red   — outflows / negative net / deficit
-COLOR_INVEST = "#afafd7"  # muted lavender — investment contribution rows
-COLOR_TAX = "#d7af87"     # muted amber    — derived tax rows
+# Rich Text color mirrors of the CSS palette roles. Rich doesn't resolve
+# Textual CSS tokens, so these stay as hex literals — but each maps to a
+# semantic role and is kept intentionally soft so a page full of deficit
+# cells doesn't turn into a traffic light.
+#   COLOR_POS   -> $success (positive net / inflows)
+#   COLOR_NEG   -> $error   (negative net / outflows / deficit)
+#   COLOR_TAX   -> $warning (derived tax rows)
+#   COLOR_INVEST no palette slot; kept bespoke for invest-contribution rows.
+COLOR_POS = "#87af87"
+COLOR_NEG = "#d78787"
+COLOR_INVEST = "#afafd7"
+COLOR_TAX = "#d7af87"
+
+
+_LINES_HINTS = format_hints([
+    ("N", "ew"),
+    ("E", "dit"),
+    ("⌫", " delete"),
+    ("O", " overrides"),
+    ("M", " edit metadata"),
+    ("Esc", " back"),
+])
+_CASHFLOW_HINTS = format_hints([
+    ("↵", " per-month"),
+    ("M", " edit metadata"),
+    ("Esc", " back"),
+])
+_INVESTMENTS_HINTS = format_hints([
+    ("V", " manage"),
+    ("↵", " per-month"),
+    ("M", " edit metadata"),
+    ("Esc", " back"),
+])
 
 
 def _fmt_signed(value: Decimal) -> str:
@@ -79,7 +111,7 @@ def _avg_monthly_tax_for_line(proj, line_id: int) -> Decimal:
     return total / Decimal(active_months)
 
 
-class ForecastProfileDetailScreen(Screen):
+class ForecastProfileDetailScreen(FooterHintsMixin, Screen):
     """Detail screen for a forecast profile — metadata header + split view."""
 
     BINDINGS = [
@@ -93,6 +125,8 @@ class ForecastProfileDetailScreen(Screen):
         Binding("shift+down", "move_line_down", "Move down", show=False),
         Binding("shift+up", "move_line_up", "Move up", show=False),
     ]
+
+    _footer_id = "forecast-detail-footer"
 
     def __init__(self, db_manager: DatabaseManager, profile_id: int):
         super().__init__()
@@ -111,29 +145,37 @@ class ForecastProfileDetailScreen(Screen):
         self._profile_horizon: int = 0
         self._currency: str = ""
 
+        # Per-pane footer context: each load_* method writes its slot, then
+        # _refresh_footer_hints picks the right one based on focus.
+        self._lines_summary: str | Text = ""
+        self._cashflow_summary: str | Text = ""
+        self._investments_summary: str | Text = ""
+
     def compose(self) -> ComposeResult:
         yield AppHeader("Forecasts", show_period_bar=False)
         yield Container(
-            Static("", id="forecast-detail-header", classes="forecast-detail-header"),
+            Container(
+                Static("", id="forecast-detail-name", classes="forecast-detail-name"),
+                Static("", id="forecast-detail-meta", classes="forecast-detail-meta"),
+                id="forecast-detail-header",
+                classes="forecast-detail-header",
+            ),
             Horizontal(
                 Vertical(
                     Static("Lines", classes="section-title"),
                     DataTable(id="lines-table", zebra_stripes=True),
                     Static("", id="lines-empty", classes="placeholder-notice"),
-                    Static("", id="lines-summary", classes="forecast-summary"),
                     id="lines-pane",
                 ),
                 Vertical(
                     Static("Cashflow", classes="section-title"),
                     DataTable(id="cashflow-table", zebra_stripes=True),
-                    Static("", id="cashflow-summary", classes="cashflow-summary"),
                     id="cashflow-pane",
                 ),
                 Vertical(
                     Static("Investments", classes="section-title"),
                     DataTable(id="investments-table", zebra_stripes=True),
                     Static("", id="investments-empty", classes="placeholder-notice"),
-                    Static("", id="investments-summary", classes="forecast-summary"),
                     id="investments-pane",
                 ),
                 id="forecast-detail-body",
@@ -144,12 +186,13 @@ class ForecastProfileDetailScreen(Screen):
             ),
             id="forecast-detail-container",
         )
+        yield StatusFooter(id="forecast-detail-footer")
 
     def on_mount(self) -> None:
         lines_table = self.query_one("#lines-table", DataTable)
         lines_table.cursor_type = "row"
         lines_table.add_columns(
-            "Label", "Kind", "Amount", "Start", "End", "Ovr", "Notes"
+            "Label", "Kind", "Amount", "Start", "End", "Ovrd", "Notes"
         )
 
         cashflow_table = self.query_one("#cashflow-table", DataTable)
@@ -167,6 +210,35 @@ class ForecastProfileDetailScreen(Screen):
             self.load_cashflow()
             self.load_investments()
             self.load_chart()
+        self._refresh_footer_hints()
+
+    def _refresh_footer_hints(self, focused=None) -> None:
+        """Route the focused pane's (summary, hints) into the shared footer.
+
+        Overrides ``FooterHintsMixin._refresh_footer_hints`` because this
+        screen needs to set BOTH sides of the footer (summary + hints) and
+        the mixin's ``_hint_map`` only covers hints.
+        """
+        if focused is None:
+            focused = getattr(self.app, "focused", None)
+        wid = getattr(focused, "id", "") or ""
+
+        if wid == "cashflow-table":
+            summary: str | Text = self._cashflow_summary
+            hints: str | Text = _CASHFLOW_HINTS
+        elif wid == "investments-table":
+            summary = self._investments_summary
+            hints = _INVESTMENTS_HINTS
+        else:
+            summary = self._lines_summary
+            hints = _LINES_HINTS
+
+        try:
+            footer = self.query_one(f"#{self._footer_id}", StatusFooter)
+        except Exception:
+            return
+        footer.set_summary(summary)
+        footer.set_hints(hints)
 
     # ---------------- Load methods ----------------
 
@@ -201,14 +273,12 @@ class ForecastProfileDetailScreen(Screen):
             self.app.pop_screen()
             return False
 
-        header_text = (
-            f"[bold]{name}[/]\n"
+        self.query_one("#forecast-detail-name", Static).update(name)
+        self.query_one("#forecast-detail-meta", Static).update(
             f"{currency} · {start_label} → {end_label} "
             f"({horizon} month{'s' if horizon != 1 else ''}) · "
-            f"opening {opening} {currency}    "
-            f"[dim]m edit metadata[/]"
+            f"opening {opening} {currency}"
         )
-        self.query_one("#forecast-detail-header", Static).update(header_text)
         return True
 
     def load_lines(self) -> None:
@@ -221,7 +291,6 @@ class ForecastProfileDetailScreen(Screen):
         """
         table = self.query_one("#lines-table", DataTable)
         empty = self.query_one("#lines-empty", Static)
-        summary = self.query_one("#lines-summary", Static)
 
         prev_cursor = table.cursor_row
         table.clear()
@@ -380,37 +449,30 @@ class ForecastProfileDetailScreen(Screen):
             )
             empty.display = True
             table.display = False
-            summary.update(
-                "0 lines · n new · m edit metadata · Esc back"
-            )
+            self._lines_summary = "0 lines"
         else:
             empty.display = False
             table.display = True
             parts = [f"{line_count} line{'s' if line_count != 1 else ''}"]
             if tax_row_count:
-                parts.append(
-                    f"{tax_row_count} taxed"
-                )
+                parts.append(f"{tax_row_count} taxed")
             if investment_count:
                 parts.append(
                     f"{investment_count} "
                     f"investment{'s' if investment_count != 1 else ''}"
                 )
-            summary.update(
-                " · ".join(parts)
-                + " · n new · e edit · ⌫ delete · o overrides · ⇧↑/⇧↓ reorder"
-            )
+            self._lines_summary = " · ".join(parts)
             if prev_cursor is not None:
                 table.move_cursor(
                     row=min(prev_cursor, table.row_count - 1)
                 )
             if not table.has_focus:
                 table.focus()
+        self._refresh_footer_hints()
 
     def load_cashflow(self) -> None:
         """Compute + render the month-by-month cashflow table and summary."""
         table = self.query_one("#cashflow-table", DataTable)
-        summary = self.query_one("#cashflow-summary", Static)
         table.clear()
         self._cashflow_offsets = []
 
@@ -420,11 +482,13 @@ class ForecastProfileDetailScreen(Screen):
                 proj = service.get_projection(self.profile_id)
         except ValueError:
             # Profile vanished out-of-band — handled by the next refresh.
-            summary.update("")
+            self._cashflow_summary = ""
+            self._refresh_footer_hints()
             return
         except Exception as e:
             self.notify(f"Error computing projection: {e}", severity="error")
-            summary.update("")
+            self._cashflow_summary = ""
+            self._refresh_footer_hints()
             return
 
         for m in proj.months:
@@ -466,19 +530,19 @@ class ForecastProfileDetailScreen(Screen):
             deficit_part = f"[bold {COLOR_NEG}]{deficit_part}[/]"
 
         net_sign = "+" if proj.net >= 0 else "-"
-        summary.update(
+        self._cashflow_summary = (
             f"In {proj.total_inflow:,.2f} · "
             f"Out {proj.total_outflow:,.2f} · "
             f"Net {net_sign}{abs(proj.net):,.2f} · "
             f"End {proj.ending_balance:,.2f} · "
             f"{min_part} · {deficit_part}"
         )
+        self._refresh_footer_hints()
 
     def load_investments(self) -> None:
         """Render the per-month investment aggregate table + summary."""
         table = self.query_one("#investments-table", DataTable)
         empty = self.query_one("#investments-empty", Static)
-        summary = self.query_one("#investments-summary", Static)
 
         prev_cursor = table.cursor_row
         table.clear()
@@ -503,7 +567,8 @@ class ForecastProfileDetailScreen(Screen):
             )
             empty.display = True
             table.display = False
-            summary.update("v manage investments")
+            self._investments_summary = "0 investments"
+            self._refresh_footer_hints()
             return
 
         empty.display = False
@@ -530,13 +595,13 @@ class ForecastProfileDetailScreen(Screen):
         total_growth = proj.total_investment_growth.quantize(Decimal("0.01"))
         ending_value = proj.ending_investment_value.quantize(Decimal("0.01"))
         noun = "investment" if investment_count == 1 else "investments"
-        summary.update(
+        self._investments_summary = (
             f"{investment_count} {noun} · "
             f"Contrib {total_contrib:,.2f} · "
             f"Growth {_fmt_signed(total_growth)} · "
-            f"End {ending_value:,.2f}    "
-            "v manage · Enter per-month"
+            f"End {ending_value:,.2f}"
         )
+        self._refresh_footer_hints()
 
         if prev_cursor is not None and table.row_count > 0:
             table.move_cursor(row=min(prev_cursor, table.row_count - 1))
@@ -583,9 +648,19 @@ class ForecastProfileDetailScreen(Screen):
                     width=0.7,
                     labels=["Cash", "Investments"],
                 )
+                y_max = max(
+                    (c + i for c, i in zip(cash, investments)),
+                    default=0.0,
+                )
             else:
                 plt.bar(xs, cash, color=green, width=0.7)
+                y_max = max(cash, default=0.0)
             plt.xticks(xs, labels)
+            ticks = nice_ticks(y_max)
+            plt.yticks(
+                ticks,
+                [format_axis_value(t) for t in ticks],
+            )
         title = "Running balance"
         if has_investments:
             title += " · cash + investments"

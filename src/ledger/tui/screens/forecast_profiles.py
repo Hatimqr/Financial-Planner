@@ -10,6 +10,7 @@ from textual.widgets import DataTable, Static
 
 from ledger.db.connection import DatabaseManager
 from ledger.services.forecast_service import ForecastService
+from ledger.tui.widgets._forecast_month import offset_to_ym_label
 from ledger.tui.widgets.app_header import AppHeader
 from ledger.tui.widgets.confirm_dialog import ConfirmDialog
 from ledger.tui.widgets.forecast_profile_duplicate import DuplicateProfileModal
@@ -17,6 +18,7 @@ from ledger.tui.widgets.forecast_profile_form import (
     ForecastProfileFormModal,
     ProfileFormResult,
 )
+from ledger.tui.widgets.status_footer import StatusFooter
 
 
 class ForecastProfilesScreen(Screen):
@@ -38,16 +40,22 @@ class ForecastProfilesScreen(Screen):
     def compose(self) -> ComposeResult:
         yield AppHeader("Forecasts", show_period_bar=False)
         yield Container(
+            Static("", id="forecast-profiles-subtitle", classes="screen-subtitle"),
             DataTable(id="forecast-profiles-table", zebra_stripes=True),
             Static("", id="forecast-profiles-empty", classes="placeholder-notice"),
-            Static("", id="forecast-profiles-summary", classes="forecast-summary"),
             id="forecast-profiles-container",
         )
+        yield StatusFooter(id="forecast-profiles-footer")
 
     def on_mount(self) -> None:
         table = self.query_one("#forecast-profiles-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("Name", "Currency", "Start", "Horizon", "Opening")
+        table.add_column("Name", key="name", width=30)
+        table.add_column("Currency", key="currency", width=10)
+        table.add_column("Start", key="start", width=10)
+        table.add_column("End", key="end", width=10)
+        table.add_column("Lines", key="lines", width=7)
+        table.add_column("Opening", key="opening", width=14)
         self.load_profiles()
         table.focus()
 
@@ -55,10 +63,13 @@ class ForecastProfilesScreen(Screen):
         """Load forecast profiles from DB and populate the table."""
         table = self.query_one("#forecast-profiles-table", DataTable)
         empty = self.query_one("#forecast-profiles-empty", Static)
-        summary = self.query_one("#forecast-profiles-summary", Static)
+        subtitle = self.query_one("#forecast-profiles-subtitle", Static)
+        footer = self.query_one("#forecast-profiles-footer", StatusFooter)
 
         table.clear()
         self._profile_ids = []
+        currencies: set[str] = set()
+        horizons: list[int] = []
 
         try:
             with self.db_manager.get_session() as session:
@@ -66,33 +77,57 @@ class ForecastProfilesScreen(Screen):
                 profiles = service.list_profiles()
 
                 for p in profiles:
+                    end_label = offset_to_ym_label(
+                        p.start_date.year,
+                        p.start_date.month,
+                        max(p.horizon_months - 1, 0),
+                    )
+                    line_count = len(service.list_lines(p.id))
                     table.add_row(
                         p.name,
                         p.currency,
                         p.start_date.strftime("%Y-%m"),
-                        str(p.horizon_months),
+                        end_label,
+                        str(line_count),
                         format(p.opening_balance, ",.2f"),
                     )
                     self._profile_ids.append(p.id)
+                    currencies.add(p.currency)
+                    horizons.append(p.horizon_months)
         except Exception as e:
             self.notify(f"Error loading forecast profiles: {e}", severity="error")
             return
 
         count = len(self._profile_ids)
         if count == 0:
+            subtitle.update("")
             empty.update("No forecast profiles yet. Press [bold]n[/] to create one.")
             empty.display = True
             table.display = False
-            summary.update("")
+            footer.set_summary("")
+            footer.set_hints("n new")
         else:
+            subtitle.update(self._subtitle_text(count, currencies, horizons))
             empty.display = False
             table.display = True
-            summary.update(
-                f"{count} profile{'s' if count != 1 else ''} · "
-                f"n new · e edit · c duplicate · ⌫ delete · Enter open"
-            )
+            footer.set_summary(f"{count} profile{'s' if count != 1 else ''}")
+            footer.set_hints("n new · e edit · c duplicate · ⌫ delete · Enter open")
             if not table.has_focus:
                 table.focus()
+
+    @staticmethod
+    def _subtitle_text(
+        count: int, currencies: set[str], horizons: list[int]
+    ) -> str:
+        """Compose the quiet context line below the header."""
+        parts = [f"{count} profile{'s' if count != 1 else ''}"]
+        if currencies:
+            parts.append(f"currencies: {', '.join(sorted(currencies))}")
+        if horizons:
+            hmin, hmax = min(horizons), max(horizons)
+            range_str = f"{hmin} months" if hmin == hmax else f"{hmin}–{hmax} months"
+            parts.append(f"horizons: {range_str}")
+        return " · ".join(parts)
 
     def refresh_data(self) -> None:
         self.load_profiles()

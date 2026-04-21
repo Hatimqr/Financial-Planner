@@ -1,4 +1,4 @@
-"""Reports screen for Income Statement and Balance Sheet."""
+"""Reports screen — Income Statement and Balance Sheet side by side."""
 
 from datetime import date
 from decimal import Decimal
@@ -6,85 +6,86 @@ from decimal import Decimal
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, VerticalScroll
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, ContentSwitcher, Static
+from textual.widgets import Static
 
 from ledger.db.connection import DatabaseManager
 from ledger.services.report_service import ReportService
 from ledger.tui.widgets.app_header import AppHeader
+from ledger.tui.widgets.status_footer import StatusFooter, format_hints
 
 BLOCKS = " ▏▎▍▌▋▊▉█"
+BAR_WIDTH = 15
+LABEL_WIDTH = 28
+AMOUNT_WIDTH = 14
 
 
 class ReportsScreen(Screen):
-    """Screen for viewing financial reports."""
+    """Two-pane view: Income Statement (left) · Balance Sheet (right).
+
+    Both panes share the same visual grammar: accent section titles, colored
+    row labels + amounts, per-row bars on a shared scale, totals, and a
+    bordered NET-box pinned to the bottom of each pane.
+    """
 
     BINDINGS = [
-        Binding("left", "prev_tab", "← Tab"),
-        Binding("right", "next_tab", "Tab →"),
+        Binding("left", "focus_income", "Income Pane"),
+        Binding("right", "focus_balance", "Balance Pane"),
         Binding("f5", "refresh", "Refresh"),
     ]
 
     def __init__(self, db_manager: DatabaseManager):
         super().__init__()
         self.db_manager = db_manager
-        self._current_tab = "income"
 
     def compose(self) -> ComposeResult:
         yield AppHeader("Reports")
         yield Container(
             Horizontal(
-                Button("Income Statement", id="tab-income", variant="primary"),
-                Button("Balance Sheet", id="tab-balance"),
-                id="report-tabs-buttons",
+                Vertical(
+                    VerticalScroll(id="income-content", classes="report-content"),
+                    Container(id="income-net-slot", classes="report-net-slot"),
+                    id="income-pane",
+                    classes="report-pane",
+                ),
+                Vertical(
+                    VerticalScroll(id="balance-content", classes="report-content"),
+                    Container(id="balance-net-slot", classes="report-net-slot"),
+                    id="balance-pane",
+                    classes="report-pane",
+                ),
+                id="report-split",
             ),
-            ContentSwitcher(
-                VerticalScroll(id="income-content"),
-                VerticalScroll(id="balance-content"),
-                id="report-content",
-                initial="income-content",
-            ),
+            id="report-container",
         )
+        yield StatusFooter(id="reports-footer")
 
     def on_mount(self) -> None:
         self.load_reports()
         self.query_one("#income-content", VerticalScroll).focus()
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        button_id = event.button.id
-        if button_id == "tab-income":
-            self._switch_to_income()
-        elif button_id == "tab-balance":
-            self._switch_to_balance()
-
-    def _switch_to_income(self) -> None:
-        self._current_tab = "income"
-        self.query_one("#tab-income", Button).variant = "primary"
-        self.query_one("#tab-balance", Button).variant = "default"
-        switcher = self.query_one("#report-content", ContentSwitcher)
-        switcher.current = "income-content"
-
-    def _switch_to_balance(self) -> None:
-        self._current_tab = "balance"
-        self.query_one("#tab-income", Button).variant = "default"
-        self.query_one("#tab-balance", Button).variant = "primary"
-        switcher = self.query_one("#report-content", ContentSwitcher)
-        switcher.current = "balance-content"
+        self.query_one("#reports-footer", StatusFooter).set_hints(
+            format_hints([("←→", " panes"), ("F5", " refresh")])
+        )
 
     def load_reports(self) -> None:
         try:
             with self.db_manager.get_session() as session:
-                report_service = ReportService(session)
+                svc = ReportService(session)
                 start = self.app.period_start
                 end = self.app.period_end
-                self._load_income_statement(report_service, start, end)
-                self._load_balance_sheet(report_service)
+                income = svc.get_income_statement(start, end)
+                balance = svc.get_balance_sheet()
+                self._render_income_statement(income, start, end)
+                self._render_balance_sheet(balance)
+                self._update_footer_summary(income, balance)
         except Exception as e:
             self.notify(f"Error loading reports: {e}", severity="error")
 
-    def _bar_chart(self, amount: Decimal, max_amount: Decimal, width: int = 20) -> str:
-        if max_amount <= 0:
+    # ── Rendering primitives ────────────────────────────────────────────
+
+    def _bar_chart(self, amount: Decimal, max_amount: Decimal, width: int = BAR_WIDTH) -> str:
+        if max_amount <= 0 or amount <= 0:
             return ""
         ratio = float(amount / max_amount)
         full_blocks = int(ratio * width)
@@ -95,141 +96,185 @@ class ReportsScreen(Screen):
             bar += BLOCKS[partial_idx]
         return bar
 
-    def _load_income_statement(
-        self, report_service: ReportService, start_date: date, end_date: date
-    ) -> None:
-        content = self.query_one("#income-content", VerticalScroll)
-        content.remove_children()
-
-        statement = report_service.get_income_statement(start_date, end_date)
-        period_str = f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
-
-        content.mount(
-            Static(f"Income Statement: {period_str}", classes="report-header")
-        )
-
-        # Income section
-        content.mount(Static("INCOME", classes="report-section-title"))
-        total_income = Decimal("0")
-        max_income = max((amt for _, amt in statement["income"]), default=Decimal("0"))
-        for account_name, amount in statement["income"]:
-            display_name = account_name.split(":")[-1] if ":" in account_name else account_name
-            bar = self._bar_chart(amount, max_income)
-            line = Text()
-            line.append(f"  {display_name:<30} ", style="green")
-            line.append(f"{self._format_currency(amount):>12}", style="green")
-            line.append(f"  {bar}", style="green dim")
-            content.mount(Static(line, classes="report-line"))
-            total_income += amount
-
-        content.mount(Static(f"{'━' * 54}", classes="report-separator"))
-
-        total_line = Text()
-        total_line.append(f"  {'Total Income':<30} ", style="bold")
-        total_line.append(f"{self._format_currency(total_income):>12}", style="bold")
-        content.mount(Static(total_line, classes="report-total"))
-        content.mount(Static(""))
-
-        # Expenses section
-        content.mount(Static("EXPENSES", classes="report-section-title"))
-        total_expenses = Decimal("0")
-        max_expense = max((amt for _, amt in statement["expenses"]), default=Decimal("0"))
-        for account_name, amount in statement["expenses"]:
-            display_name = account_name.split(":")[-1] if ":" in account_name else account_name
-            bar = self._bar_chart(amount, max_expense)
-            line = Text()
-            line.append(f"  {display_name:<30} ", style="red")
-            line.append(f"{self._format_currency(amount):>12}", style="red")
-            line.append(f"  {bar}", style="red dim")
-            content.mount(Static(line, classes="report-line"))
-            total_expenses += amount
-
-        content.mount(Static(f"{'━' * 54}", classes="report-separator"))
-
-        total_line = Text()
-        total_line.append(f"  {'Total Expenses':<30} ", style="bold")
-        total_line.append(f"{self._format_currency(total_expenses):>12}", style="bold")
-        content.mount(Static(total_line, classes="report-total"))
-        content.mount(Static(""))
-
-        # Net income
-        net_income = total_income - total_expenses
-        content.mount(Static(f"{'═' * 54}", classes="report-separator"))
-
-        net_class = "report-net-positive" if net_income >= 0 else "report-net-negative"
-        net_line = Text()
-        net_style = "bold green" if net_income >= 0 else "bold red"
-        net_line.append(f"  {'NET INCOME':<30} ", style=net_style)
-        net_line.append(f"{self._format_currency(net_income):>12}", style=net_style)
-        content.mount(Static(net_line, classes=net_class))
-
-    def _load_balance_sheet(self, report_service: ReportService) -> None:
-        content = self.query_one("#balance-content", VerticalScroll)
-        content.remove_children()
-
-        sheet = report_service.get_balance_sheet()
-        today_str = date.today().strftime("%B %d, %Y")
-
-        content.mount(
-            Static(f"Balance Sheet: As of {today_str}", classes="report-header")
-        )
-
-        # Assets section
-        content.mount(Static("ASSETS", classes="report-section-title"))
-        for account_name, balance in sheet["assets"]:
-            display_name = account_name.split(":")[-1] if ":" in account_name else account_name
-            line = Text()
-            line.append(f"  {display_name:<40} ", style="")
-            line.append(f"{self._format_currency(balance):>12}", style="")
-            content.mount(Static(line, classes="report-line"))
-
-        content.mount(Static(f"{'━' * 54}", classes="report-separator"))
-
-        total_line = Text()
-        total_line.append(f"  {'Total Assets':<40} ", style="bold")
-        total_line.append(f"{self._format_currency(sheet['total_assets']):>12}", style="bold")
-        content.mount(Static(total_line, classes="report-total"))
-        content.mount(Static(""))
-
-        # Liabilities section
-        content.mount(Static("LIABILITIES", classes="report-section-title"))
-        for account_name, balance in sheet["liabilities"]:
-            display_name = account_name.split(":")[-1] if ":" in account_name else account_name
-            line = Text()
-            line.append(f"  {display_name:<40} ", style="red dim")
-            line.append(f"{self._format_currency(balance):>12}", style="red dim")
-            content.mount(Static(line, classes="report-line"))
-
-        content.mount(Static(f"{'━' * 54}", classes="report-separator"))
-
-        total_line = Text()
-        total_line.append(f"  {'Total Liabilities':<40} ", style="bold")
-        total_line.append(f"{self._format_currency(sheet['total_liabilities']):>12}", style="bold")
-        content.mount(Static(total_line, classes="report-total"))
-        content.mount(Static(""))
-
-        # Net worth
-        content.mount(Static(f"{'═' * 54}", classes="report-separator"))
-        net_style = "bold green" if sheet["net_worth"] >= 0 else "bold red"
-        net_class = "report-net-positive" if sheet["net_worth"] >= 0 else "report-net-negative"
-        net_line = Text()
-        net_line.append(f"  {'NET WORTH':<40} ", style=net_style)
-        net_line.append(f"{self._format_currency(sheet['net_worth']):>12}", style=net_style)
-        content.mount(Static(net_line, classes=net_class))
-
     def _format_currency(self, amount: Decimal) -> str:
         if amount >= 0:
             return f"AED {amount:,.2f}"
+        return f"-AED {abs(amount):,.2f}"
+
+    def _line(
+        self,
+        label: str,
+        amount: Decimal,
+        style: str = "",
+        bar: str = "",
+    ) -> Text:
+        """Unified row formatter used by data rows, totals, and net boxes.
+
+        Produces ``{label:<28} {amount:>14}  {bar}`` — no leading padding,
+        so CSS padding-left on the host class determines indentation.
+        """
+        line = Text()
+        line.append(f"{label:<{LABEL_WIDTH}} ", style=style)
+        line.append(f"{self._format_currency(amount):>{AMOUNT_WIDTH}}", style=style)
+        if bar:
+            line.append(f"  {bar}", style=f"{style} dim" if style else "dim")
+        return line
+
+    def _mount_net_box(self, slot_id: str, label: str, amount: Decimal) -> None:
+        slot = self.query_one(f"#{slot_id}", Container)
+        slot.remove_children()
+        polarity = "positive" if amount >= 0 else "negative"
+        text = self._line(label, amount)
+        slot.mount(
+            Static(
+                text,
+                classes=f"report-net-box report-net-box-{polarity}",
+            )
+        )
+
+    # ── Income Statement ────────────────────────────────────────────────
+
+    def _render_income_statement(
+        self,
+        data: dict,
+        start_date: date,
+        end_date: date,
+    ) -> None:
+        pane = self.query_one("#income-content", VerticalScroll)
+        pane.remove_children()
+
+        period_str = f"{start_date.strftime('%b %d')} → {end_date.strftime('%b %d, %Y')}"
+        pane.mount(Static("Income Statement", classes="report-header"))
+        pane.mount(Static(period_str, classes="report-subtitle"))
+
+        # Shared scale so income and expense bars are directly comparable.
+        max_income = max((amt for _, amt in data["income"]), default=Decimal("0"))
+        max_expense = max((amt for _, amt in data["expenses"]), default=Decimal("0"))
+        bar_scale = max(max_income, max_expense, Decimal("0"))
+
+        # INCOME
+        pane.mount(Static("INCOME", classes="report-section-title"))
+        total_income = Decimal("0")
+        if data["income"]:
+            for account_name, amount in data["income"]:
+                display = account_name.split(":")[-1] if ":" in account_name else account_name
+                bar = self._bar_chart(amount, bar_scale)
+                pane.mount(Static(
+                    self._line(display, amount, style="green", bar=bar),
+                    classes="report-line",
+                ))
+                total_income += amount
         else:
-            return f"-AED {abs(amount):,.2f}"
+            pane.mount(Static("No income in this period", classes="report-empty"))
 
-    def action_prev_tab(self) -> None:
-        if self._current_tab == "balance":
-            self._switch_to_income()
+        pane.mount(Static("━" * (LABEL_WIDTH + AMOUNT_WIDTH + 3), classes="report-separator"))
+        pane.mount(Static(
+            self._line("Total Income", total_income, style="bold"),
+            classes="report-total",
+        ))
+        pane.mount(Static(""))
 
-    def action_next_tab(self) -> None:
-        if self._current_tab == "income":
-            self._switch_to_balance()
+        # EXPENSES
+        pane.mount(Static("EXPENSES", classes="report-section-title"))
+        total_expenses = Decimal("0")
+        if data["expenses"]:
+            for account_name, amount in data["expenses"]:
+                display = account_name.split(":")[-1] if ":" in account_name else account_name
+                bar = self._bar_chart(amount, bar_scale)
+                pane.mount(Static(
+                    self._line(display, amount, style="red", bar=bar),
+                    classes="report-line",
+                ))
+                total_expenses += amount
+        else:
+            pane.mount(Static("No expenses in this period", classes="report-empty"))
+
+        pane.mount(Static("━" * (LABEL_WIDTH + AMOUNT_WIDTH + 3), classes="report-separator"))
+        pane.mount(Static(
+            self._line("Total Expenses", total_expenses, style="bold"),
+            classes="report-total",
+        ))
+
+        # NET INCOME — docked to the bottom of the pane.
+        self._mount_net_box("income-net-slot", "NET INCOME", total_income - total_expenses)
+
+    # ── Balance Sheet ───────────────────────────────────────────────────
+
+    def _render_balance_sheet(self, data: dict) -> None:
+        pane = self.query_one("#balance-content", VerticalScroll)
+        pane.remove_children()
+
+        today_str = date.today().strftime("%B %d, %Y")
+        pane.mount(Static("Balance Sheet", classes="report-header"))
+        pane.mount(Static(f"As of {today_str}", classes="report-subtitle"))
+
+        # Shared bar scale so asset and liability bars are comparable.
+        max_asset = max((bal for _, bal in data["assets"]), default=Decimal("0"))
+        max_liability = max((bal for _, bal in data["liabilities"]), default=Decimal("0"))
+        bar_scale = max(max_asset, max_liability, Decimal("0"))
+
+        # ASSETS
+        pane.mount(Static("ASSETS", classes="report-section-title"))
+        if data["assets"]:
+            for account_name, balance in data["assets"]:
+                display = account_name.split(":")[-1] if ":" in account_name else account_name
+                bar = self._bar_chart(balance, bar_scale)
+                pane.mount(Static(
+                    self._line(display, balance, style="green", bar=bar),
+                    classes="report-line",
+                ))
+        else:
+            pane.mount(Static("No assets", classes="report-empty"))
+
+        pane.mount(Static("━" * (LABEL_WIDTH + AMOUNT_WIDTH + 3), classes="report-separator"))
+        pane.mount(Static(
+            self._line("Total Assets", data["total_assets"], style="bold"),
+            classes="report-total",
+        ))
+        pane.mount(Static(""))
+
+        # LIABILITIES
+        pane.mount(Static("LIABILITIES", classes="report-section-title"))
+        if data["liabilities"]:
+            for account_name, balance in data["liabilities"]:
+                display = account_name.split(":")[-1] if ":" in account_name else account_name
+                bar = self._bar_chart(balance, bar_scale)
+                pane.mount(Static(
+                    self._line(display, balance, style="red", bar=bar),
+                    classes="report-line",
+                ))
+        else:
+            pane.mount(Static("No liabilities", classes="report-empty"))
+
+        pane.mount(Static("━" * (LABEL_WIDTH + AMOUNT_WIDTH + 3), classes="report-separator"))
+        pane.mount(Static(
+            self._line("Total Liabilities", data["total_liabilities"], style="bold"),
+            classes="report-total",
+        ))
+
+        # NET WORTH — docked to the bottom of the pane.
+        self._mount_net_box("balance-net-slot", "NET WORTH", data["net_worth"])
+
+    # ── Footer ──────────────────────────────────────────────────────────
+
+    def _update_footer_summary(self, income: dict, balance: dict) -> None:
+        net_income = income["net_income"]
+        net_worth = balance["net_worth"]
+        ni_sign = "+" if net_income >= 0 else ""
+        nw_sign = "+" if net_worth >= 0 else ""
+        summary = (
+            f"Net Income: {ni_sign}AED {net_income:,.2f}"
+            f"  ·  Net Worth: {nw_sign}AED {net_worth:,.2f}"
+        )
+        self.query_one("#reports-footer", StatusFooter).set_summary(summary)
+
+    # ── Actions ─────────────────────────────────────────────────────────
+
+    def action_focus_income(self) -> None:
+        self.query_one("#income-content", VerticalScroll).focus()
+
+    def action_focus_balance(self) -> None:
+        self.query_one("#balance-content", VerticalScroll).focus()
 
     def refresh_data(self) -> None:
         self.load_reports()

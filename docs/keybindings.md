@@ -86,8 +86,8 @@ These bindings are defined on `LedgerApp` and are available from any screen.
 
 | Key | Action | Description |
 |-----|--------|-------------|
-| `←` (Left) | `prev_tab` | Switch to Income Statement |
-| `→` (Right) | `next_tab` | Switch to Balance Sheet |
+| `←` (Left) | `focus_income` | Focus Income Statement pane |
+| `→` (Right) | `focus_balance` | Focus Balance Sheet pane |
 | `F5` | `refresh` | Refresh reports |
 
 **Available global context:** `n` → New transaction.
@@ -223,7 +223,7 @@ Every screen auto-focuses its primary data widget on mount so the cursor is alwa
 | Dashboard | `#q-income` ChartQuadrant (top-left) |
 | Transactions | `#transactions_table` DataTable |
 | Accounts | `#accounts_tree` Tree (or `#accounts_table` DataTable in flat view) |
-| Reports | `#income-content` VerticalScroll |
+| Reports | `#income-pane` VerticalScroll (left-pane focus on mount) |
 | Budgets | First `BudgetProgressWidget` (via selection) |
 | Import Review | `#import_review_table` DataTable |
 

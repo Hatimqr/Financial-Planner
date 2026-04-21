@@ -1,21 +1,61 @@
-"""Account list screen showing all accounts with balances."""
+"""Account list screen — tree/flat on the left, T-ledger detail on the right."""
 
 from decimal import Decimal
 
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import DataTable, Static, Tree
 
 from ledger.db.connection import DatabaseManager
 from ledger.services.account_service import AccountService
 from ledger.tui.widgets.app_header import AppHeader
+from ledger.tui.widgets.status_footer import (
+    FooterHintsMixin,
+    StatusFooter,
+    format_hints,
+)
 
 
-class AccountListScreen(Screen):
-    """Screen showing list of all accounts with balances."""
+# Natural-balance convention: credit-normal account types display positive
+# when credits exceed debits. Raw signed balances use debit = positive, so
+# we flip sign for these types at the UI layer only.
+_CREDIT_NORMAL = {"liability", "equity", "income"}
+
+
+def _natural_sign(account_type: str, amount: Decimal) -> Decimal:
+    return -amount if account_type in _CREDIT_NORMAL else amount
+
+
+# Header-balance colour when balance is in the account's natural direction
+# (positive after the sign flip). Inverted direction gets the opposite colour.
+_NATURAL_COLOR = {
+    "asset": "green",
+    "liability": "red",
+    "equity": "green",
+    "income": "green",
+    "expense": "red",
+}
+
+
+def _balance_color(account_type: str, flipped_amount: Decimal) -> str | None:
+    """Return the colour to apply to a header balance, or ``None`` for zero."""
+    if flipped_amount == 0:
+        return None
+    natural = _NATURAL_COLOR.get(account_type, "green")
+    inverted = "red" if natural == "green" else "green"
+    return natural if flipped_amount > 0 else inverted
+
+
+class AccountListScreen(FooterHintsMixin, Screen):
+    """Tree (or flat) on the left, per-account T-ledger on the right.
+
+    Cursor movement in either view updates the detail pane — no inline
+    expansion of the ledger into the tree. This keeps the tree compact
+    and puts the right half of the terminal to use.
+    """
 
     BINDINGS = [
         Binding("n", "new_account", "New Account"),
@@ -25,20 +65,44 @@ class AccountListScreen(Screen):
         Binding("f5", "refresh", "Refresh"),
     ]
 
+    _footer_id = "accounts-footer"
+    _default_hints = format_hints([
+        ("N", "ew"),
+        ("E", "dit"),
+        ("V", " view"),
+        ("⌫", " delete"),
+    ])
+    _hint_map: dict = {}
+
     def __init__(self, db_manager: DatabaseManager):
         super().__init__()
         self.db_manager = db_manager
         self._tree_view = True
-        self._account_ids: list[int] = []  # For flat table view
+        self._account_ids: list[int] = []  # flat view row index -> account_id
+        self._account_count: int = 0
 
     def compose(self) -> ComposeResult:
         yield AppHeader("Accounts")
         yield Container(
-            Static("", id="accounts-title", classes="screen-subtitle"),
-            Tree("Accounts", id="accounts_tree"),
-            DataTable(id="accounts_table", zebra_stripes=True),
+            Horizontal(
+                Vertical(
+                    Tree("Accounts", id="accounts_tree"),
+                    DataTable(id="accounts_table", zebra_stripes=True),
+                    id="accounts-tree-pane",
+                ),
+                Vertical(
+                    Static("", id="account-detail-header", classes="account-detail-header"),
+                    VerticalScroll(
+                        Static("", id="account-detail-body"),
+                        id="account-detail-scroll",
+                    ),
+                    id="account-detail-pane",
+                ),
+                id="accounts-body",
+            ),
             id="accounts-container",
         )
+        yield StatusFooter(id="accounts-footer")
 
     def on_mount(self) -> None:
         table = self.query_one("#accounts_table", DataTable)
@@ -47,22 +111,70 @@ class AccountListScreen(Screen):
         table.display = False
 
         tree = self.query_one("#accounts_tree", Tree)
+        tree.show_root = False
+        tree.guide_depth = 2
         tree.root.expand()
 
         self.load_accounts()
         self._focus_active_widget()
+        self._refresh_footer_hints()
+
+    # ── Data loading ──────────────────────────────────────────────────────
 
     def load_accounts(self) -> None:
         if self._tree_view:
             self._load_tree_view()
         else:
             self._load_flat_view()
+        self._update_summary()
+        self.call_after_refresh(self._render_detail_for_current_selection)
+
+    def _update_summary(self) -> None:
+        view_mode = "tree view" if self._tree_view else "flat view"
+        try:
+            footer = self.query_one("#accounts-footer", StatusFooter)
+            footer.set_summary(f"{self._account_count} accounts · {view_mode}")
+        except Exception:
+            pass
 
     def _format_currency(self, amount: Decimal) -> str:
         if amount >= 0:
             return f"AED {amount:,.2f}"
         else:
             return f"-AED {abs(amount):,.2f}"
+
+    _TREE_NAME_W = 22
+    _TREE_BAL_W = 14
+
+    def _format_tree_label(
+        self,
+        leaf_name: str,
+        balance_str: str,
+        *,
+        is_placeholder: bool,
+        is_top_level: bool,
+        is_leaf: bool,
+    ) -> Text:
+        """Right-align balance into a column; weight by hierarchy role.
+
+        Top-level account-type heads read boldest, leaves slightly dimmed,
+        intermediate placeholders at normal weight. Subtle by design.
+        """
+        name = leaf_name[: self._TREE_NAME_W].ljust(self._TREE_NAME_W)
+        bal = f"({balance_str})" if is_placeholder else balance_str
+        bal = bal.rjust(self._TREE_BAL_W)
+
+        if is_top_level:
+            style = "bold"
+        elif is_leaf:
+            style = "dim"
+        else:
+            style = ""
+
+        text = Text()
+        text.append(name, style=style)
+        text.append(bal, style=style)
+        return text
 
     def _load_tree_view(self) -> None:
         tree = self.query_one("#accounts_tree", Tree)
@@ -77,52 +189,192 @@ class AccountListScreen(Screen):
                 service = AccountService(session)
                 accounts = service.get_account_tree()
 
-                nodes = {}  # account_name -> tree_node
-
+                nodes: dict[str, object] = {}
+                top_level_added = False
                 for account in accounts:
-                    balance = service.get_subtree_balance_in_period(
+                    raw_balance = service.get_subtree_balance_in_period(
                         account, start, end
                     )
+                    balance = _natural_sign(account.type, raw_balance)
                     balance_str = self._format_currency(balance)
                     leaf_name = account.name.split(":")[-1]
 
-                    if account.is_placeholder:
-                        label = f"{leaf_name}  ({balance_str})"
-                    else:
-                        label = f"{leaf_name}  {balance_str}"
+                    parent_name = (
+                        ":".join(account.name.split(":")[:-1])
+                        if ":" in account.name
+                        else None
+                    )
+                    is_top_level = parent_name is None
+                    is_leaf = not account.is_placeholder
 
-                    parent_name = ":".join(account.name.split(":")[:-1]) if ":" in account.name else None
+                    label = self._format_tree_label(
+                        leaf_name,
+                        balance_str,
+                        is_placeholder=account.is_placeholder,
+                        is_top_level=is_top_level,
+                        is_leaf=is_leaf,
+                    )
+
                     if parent_name and parent_name in nodes:
                         node = nodes[parent_name].add(label, data=account.id)
                     else:
+                        if top_level_added:
+                            spacer = tree.root.add(" ")
+                            spacer.allow_expand = False
                         node = tree.root.add(label, data=account.id)
+                        top_level_added = True
+                    if is_leaf:
+                        node.allow_expand = False
                     nodes[account.name] = node
 
-                    # For leaf accounts, add T-account posting children
-                    if not account.is_placeholder:
-                        self._add_t_account_children(service, node, account.id, start, end)
-
-                # Expand top-level nodes
                 for child in tree.root.children:
-                    child.expand()
+                    if child.data is not None:
+                        child.expand()
 
-                count = len(accounts)
-                self.query_one("#accounts-title", Static).update(f"Accounts ({count})")
-
+                self._account_count = len(accounts)
         except Exception as e:
             self.notify(f"Error loading accounts: {e}", severity="error")
 
-    def _add_t_account_children(self, service: AccountService, node, account_id: int, start, end) -> None:
-        """Add inline T-account as a proper two-column table with Rich styling."""
-        view = service.get_account_t_view(account_id, start, end)
+    def _load_flat_view(self) -> None:
+        table = self.query_one("#accounts_table", DataTable)
+        table.clear()
+        self._account_ids = []
 
-        if not view.debits and not view.credits and view.opening_balance == 0:
-            node.add_leaf(Text("  (no transactions this period)", style="dim italic"))
+        start = self.app.period_start
+        end = self.app.period_end
+
+        try:
+            with self.db_manager.get_session() as session:
+                service = AccountService(session)
+                accounts = service.get_account_tree()
+
+                for account in accounts:
+                    raw_balance = service.get_subtree_balance_in_period(
+                        account, start, end
+                    )
+                    balance = _natural_sign(account.type, raw_balance)
+                    balance_str = self._format_currency(balance)
+
+                    depth = account.name.count(":")
+                    indent = "  " * depth
+                    name_display = f"{indent}{account.name.split(':')[-1]}"
+
+                    table.add_row(
+                        name_display,
+                        account.type.capitalize(),
+                        account.currency,
+                        balance_str,
+                    )
+                    self._account_ids.append(account.id)
+
+                self._account_count = len(accounts)
+        except Exception as e:
+            self.notify(f"Error loading accounts: {e}", severity="error")
+
+    def _focus_active_widget(self) -> None:
+        if self._tree_view:
+            self.query_one("#accounts_tree", Tree).focus()
+        else:
+            self.query_one("#accounts_table", DataTable).focus()
+
+    # ── Detail pane ──────────────────────────────────────────────────────
+
+    def _render_detail_for_current_selection(self) -> None:
+        self._render_account_detail(self._get_selected_account_id())
+
+    def on_tree_node_highlighted(self, event) -> None:
+        node = getattr(event, "node", None)
+        if node is None:
+            return
+        if node.data is None:
+            # Spacer row — leave detail pane showing the previously selected
+            # account rather than clearing to "(select an account)".
+            return
+        self._render_account_detail(int(node.data))
+
+    def on_data_table_row_highlighted(self, event) -> None:
+        if self._tree_view:
+            return
+        idx = getattr(event, "cursor_row", None)
+        if idx is not None and 0 <= idx < len(self._account_ids):
+            self._render_account_detail(self._account_ids[idx])
+        else:
+            self._render_account_detail(None)
+
+    def _render_account_detail(self, account_id: int | None) -> None:
+        try:
+            header = self.query_one("#account-detail-header", Static)
+            body = self.query_one("#account-detail-body", Static)
+        except Exception:
+            return  # pane not mounted yet
+
+        if account_id is None:
+            header.update("")
+            body.update(Text("(select an account)", style="dim italic"))
             return
 
-        # Color logic — "normal" side is green, opposite is red
-        # Assets & Liabilities: debit = green, credit = red
-        # Income & Expenses: credit = green, debit = red
+        start = self.app.period_start
+        end = self.app.period_end
+
+        try:
+            with self.db_manager.get_session() as session:
+                service = AccountService(session)
+                account = service.get_account_by_id(account_id)
+                if account is None:
+                    header.update("")
+                    body.update(Text("(account not found)", style="dim italic"))
+                    return
+
+                raw_balance = service.get_subtree_balance_in_period(account, start, end)
+                balance = _natural_sign(account.type, raw_balance)
+                balance_str = self._format_currency(balance)
+
+                header_text = Text()
+                header_text.append(account.name, style="bold")
+                header_text.append("  ·  ", style="dim")
+                header_text.append(account.type.capitalize(), style="dim")
+                if account.is_placeholder:
+                    header_text.append("  ·  ", style="dim")
+                    header_text.append("placeholder", style="dim italic")
+                header_text.append("  ·  ", style="dim")
+                color = _balance_color(account.type, balance)
+                if color:
+                    header_text.append(balance_str, style=f"bold {color}")
+                else:
+                    header_text.append(balance_str, style="bold")
+                header.update(header_text)
+
+                if account.is_placeholder:
+                    body.update(
+                        Text(
+                            "Placeholder account — select a leaf account to view its ledger.",
+                            style="dim italic",
+                        )
+                    )
+                    return
+
+                view = service.get_account_t_view(account_id, start, end)
+                combined = self._build_t_ledger_text(view)
+                body.update(combined)
+        except Exception as e:
+            header.update("")
+            body.update(Text(f"Error: {e}", style="red"))
+
+    # ── T-ledger rendering (formerly inline tree leaves) ─────────────────
+
+    def _build_t_ledger_text(self, view) -> Text:
+        """Build the T-ledger as a single multi-line Text.
+
+        Layout and styling are preserved from the previous in-tree
+        implementation — only the emission target changed (Text lines vs.
+        tree leaves).
+        """
+        if not view.debits and not view.credits and view.opening_balance == 0:
+            return Text("(no transactions this period)", style="dim italic")
+
+        # "Normal" side is green, opposite side is red.
+        #  Assets & Liabilities: debit = green, credit = red
+        #  Income  & Expenses:   credit = green, debit = red
         if view.account_type in ("asset", "liability"):
             dr_color, cr_color = "green", "red"
         else:
@@ -130,77 +382,53 @@ class AccountListScreen(Screen):
 
         BAL_COLOR = "cyan"
 
-        # ── Layout constants ──
-        # Each half:  " date(6) · desc(20) ·· amt(16) "
-        #           =  1 + 6 + 3 + 20 + 2 + 16 + 2 = 50
         HALF = 50
         DATE_W = 6
-        SEP = " · "  # 3 chars
+        SEP = " · "
         DESC_W = 20
-        GAP = 2       # between desc and amount
-        AMT_W = 16    # "AED XXX,XXX.XX" right-aligned
-        TAIL = HALF - 1 - DATE_W - len(SEP) - DESC_W - GAP - AMT_W  # trailing pad
+        GAP = 2
+        AMT_W = 16
+        TAIL = HALF - 1 - DATE_W - len(SEP) - DESC_W - GAP - AMT_W
 
         def _amt(amount: Decimal) -> str:
             return f"AED {abs(amount):>10,.2f}"
 
-        # ── Build each half as a plain fixed-width string, then style it ──
-        # This guarantees the character count matches the border exactly.
-
         def _build_half_plain(date_s: str, desc_s: str, amt_s: str, rtype: str) -> str:
-            """Build one half as a plain string of exactly HALF characters."""
             if rtype == "blank":
                 return " " * HALF
-
-            parts = []
-            parts.append(" ")  # leading space
-
+            parts = [" "]
             if rtype in ("bal_bf", "bal_cf"):
-                parts.append(" " * DATE_W)     # no date for balance rows
-                parts.append(" " * len(SEP))   # blank separator space
+                parts.append(" " * DATE_W)
+                parts.append(" " * len(SEP))
             else:
                 parts.append(f"{date_s:<{DATE_W}}")
                 parts.append(SEP)
-
             if rtype == "bal_bf":
                 parts.append(f"{'Bal b/f':<{DESC_W}}")
             elif rtype == "bal_cf":
                 parts.append(f"{'Bal c/f':<{DESC_W}}")
             else:
                 parts.append(f"{desc_s[:DESC_W]:<{DESC_W}}")
-
             parts.append(" " * GAP)
             parts.append(f"{amt_s:>{AMT_W}}")
-
             line = "".join(parts)
-            # Pad or truncate to exactly HALF
             if len(line) < HALF:
                 line += " " * (HALF - len(line))
             return line[:HALF]
 
         def _style_half(plain: str, rtype: str, side: str) -> Text:
-            """Apply Rich styles to a pre-built plain string."""
             t = Text(plain)
             color = dr_color if side == "dr" else cr_color
-
             if rtype == "blank":
                 return t
-
-            # Style the separator dots
             sep_start = 1 + DATE_W
             sep_end = sep_start + len(SEP)
-            if rtype in ("bal_bf", "bal_cf"):
-                pass  # no dots for balance rows
-            else:
+            if rtype not in ("bal_bf", "bal_cf"):
                 t.stylize("dim", sep_start, sep_end)
-
-            # Style the description area
             desc_start = sep_end
             desc_end = desc_start + DESC_W
             if rtype in ("bal_bf", "bal_cf"):
                 t.stylize("dim italic", desc_start, desc_end)
-
-            # Style the amount area
             amt_start = desc_end + GAP
             amt_end = amt_start + AMT_W
             if rtype == "bal_cf":
@@ -209,17 +437,14 @@ class AccountListScreen(Screen):
                 t.stylize(f"{color} bold", amt_start, amt_end)
             elif rtype == "txn":
                 t.stylize(color, amt_start, amt_end)
-
             return t
 
-        # ── Row data: (date, desc, amt, type) ──
         RowData = tuple
         BLANK: RowData = ("", "", "", "blank")
 
         dr_rows: list[RowData] = []
         cr_rows: list[RowData] = []
 
-        # 1. Opening balance (Bal b/f)
         opening = view.opening_balance
         if opening != 0:
             bal_row: RowData = ("", "Bal b/f", _amt(abs(opening)), "bal_bf")
@@ -230,7 +455,6 @@ class AccountListScreen(Screen):
                 dr_rows.append(BLANK)
                 cr_rows.append(bal_row)
 
-        # 2. Period transactions
         di, ci = 0, 0
         while di < len(view.debits) or ci < len(view.credits):
             if di < len(view.debits):
@@ -246,16 +470,13 @@ class AccountListScreen(Screen):
             else:
                 cr_rows.append(BLANK)
 
-        # 3. Balance c/f — on the smaller side to equalize
         total_dr = (abs(opening) if opening > 0 else Decimal(0)) + view.total_debits
         total_cr = (abs(opening) if opening < 0 else Decimal(0)) + view.total_credits
         closing = abs(view.closing_balance)
 
         if closing != 0:
-            # Spacer row before bal c/f
             dr_rows.append(BLANK)
             cr_rows.append(BLANK)
-
             cf_row: RowData = ("", "Bal c/f", _amt(closing), "bal_cf")
             if view.closing_balance > 0:
                 dr_rows.append(BLANK)
@@ -266,13 +487,10 @@ class AccountListScreen(Screen):
                 cr_rows.append(BLANK)
                 total_dr += closing
 
-        # Equalize
         while len(dr_rows) < len(cr_rows):
             dr_rows.append(BLANK)
         while len(cr_rows) < len(dr_rows):
             cr_rows.append(BLANK)
-
-        # ── Rendering ──
 
         def _dim(s: str) -> Text:
             return Text(s, style="dim")
@@ -289,27 +507,27 @@ class AccountListScreen(Screen):
         horiz = "─" * HALF
         dbl_horiz = "═" * HALF
 
-        # Header
-        node.add_leaf(_dim(f"┌{horiz}┬{horiz}┐"))
-        node.add_leaf(_join(
-            _dim("│"),
-            Text("DEBIT (Dr)".center(HALF), style="bold"),
-            _dim("│"),
-            Text("CREDIT (Cr)".center(HALF), style="bold"),
-            _dim("│"),
-        ))
-        node.add_leaf(_dim(f"├{horiz}┼{horiz}┤"))
+        lines: list[Text] = []
+        lines.append(_dim(f"┌{horiz}┬{horiz}┐"))
+        lines.append(
+            _join(
+                _dim("│"),
+                Text("DEBIT (Dr)".center(HALF), style="bold"),
+                _dim("│"),
+                Text("CREDIT (Cr)".center(HALF), style="bold"),
+                _dim("│"),
+            )
+        )
+        lines.append(_dim(f"├{horiz}┼{horiz}┤"))
 
-        # Transaction rows
         for dr_data, cr_data in zip(dr_rows, cr_rows):
             dr_plain = _build_half_plain(*dr_data)
             cr_plain = _build_half_plain(*cr_data)
             dr_text = _style_half(dr_plain, dr_data[3], "dr")
             cr_text = _style_half(cr_plain, cr_data[3], "cr")
-            node.add_leaf(_join(_dim("│"), dr_text, _dim("│"), cr_text, _dim("│")))
+            lines.append(_join(_dim("│"), dr_text, _dim("│"), cr_text, _dim("│")))
 
-        # Totals
-        node.add_leaf(_dim(f"├{horiz}┼{horiz}┤"))
+        lines.append(_dim(f"├{horiz}┼{horiz}┤"))
         grand = max(total_dr, total_cr)
 
         def _total_plain(amount: Decimal) -> str:
@@ -319,88 +537,56 @@ class AccountListScreen(Screen):
             return f"{label}{' ' * max(pad_mid, 1)}{amt_s:>{AMT_W}}{' ' * max(TAIL, 0)}"[:HALF]
 
         def _total_styled(plain: str) -> Text:
-            t = Text(plain, style="bold")
-            return t
+            return Text(plain, style="bold")
 
-        node.add_leaf(_join(
-            _dim("│"),
-            _total_styled(_total_plain(grand)),
-            _dim("│"),
-            _total_styled(_total_plain(grand)),
-            _dim("│"),
-        ))
+        lines.append(
+            _join(
+                _dim("│"),
+                _total_styled(_total_plain(grand)),
+                _dim("│"),
+                _total_styled(_total_plain(grand)),
+                _dim("│"),
+            )
+        )
+        lines.append(_dim(f"╞{dbl_horiz}╪{dbl_horiz}╡"))
 
-        # Double line
-        node.add_leaf(_dim(f"╞{dbl_horiz}╪{dbl_horiz}╡"))
-
-        # Bal b/f for next period
         if closing != 0:
             bf_data: RowData = ("", "Bal b/f", _amt(closing), "bal_bf")
             bf_plain = _build_half_plain(*bf_data)
             blank_plain = " " * HALF
             if view.closing_balance > 0:
-                node.add_leaf(_join(
-                    _dim("│"), _style_half(bf_plain, "bal_bf", "dr"),
-                    _dim("│"), Text(blank_plain),
-                    _dim("│"),
-                ))
+                lines.append(
+                    _join(
+                        _dim("│"), _style_half(bf_plain, "bal_bf", "dr"),
+                        _dim("│"), Text(blank_plain),
+                        _dim("│"),
+                    )
+                )
             else:
-                node.add_leaf(_join(
-                    _dim("│"), Text(blank_plain),
-                    _dim("│"), _style_half(bf_plain, "bal_bf", "cr"),
-                    _dim("│"),
-                ))
+                lines.append(
+                    _join(
+                        _dim("│"), Text(blank_plain),
+                        _dim("│"), _style_half(bf_plain, "bal_bf", "cr"),
+                        _dim("│"),
+                    )
+                )
         else:
             blank_plain = " " * HALF
-            node.add_leaf(_join(
-                _dim("│"), Text(blank_plain), _dim("│"), Text(blank_plain), _dim("│")
-            ))
+            lines.append(
+                _join(
+                    _dim("│"), Text(blank_plain), _dim("│"), Text(blank_plain), _dim("│")
+                )
+            )
+        lines.append(_dim(f"└{horiz}┴{horiz}┘"))
 
-        node.add_leaf(_dim(f"└{horiz}┴{horiz}┘"))
+        combined = Text()
+        for i, line in enumerate(lines):
+            if i > 0:
+                combined.append("\n")
+            combined.append_text(line)
+        return combined
 
-    def _load_flat_view(self) -> None:
-        table = self.query_one("#accounts_table", DataTable)
-        table.clear()
-        self._account_ids = []
-
-        start = self.app.period_start
-        end = self.app.period_end
-
-        try:
-            with self.db_manager.get_session() as session:
-                service = AccountService(session)
-                accounts = service.get_account_tree()
-
-                for account in accounts:
-                    balance = service.get_subtree_balance_in_period(
-                        account, start, end
-                    )
-                    balance_str = self._format_currency(balance)
-
-                    depth = account.name.count(":")
-                    indent = "  " * depth
-                    name_display = f"{indent}{account.name.split(':')[-1]}"
-
-                    table.add_row(
-                        name_display,
-                        account.type.capitalize(),
-                        account.currency,
-                        balance_str,
-                    )
-                    self._account_ids.append(account.id)
-
-                count = len(accounts)
-                self.query_one("#accounts-title", Static).update(f"Accounts ({count})")
-
-        except Exception as e:
-            self.notify(f"Error loading accounts: {e}", severity="error")
-
-    def _focus_active_widget(self) -> None:
-        """Focus the currently visible data widget (tree or table)."""
-        if self._tree_view:
-            self.query_one("#accounts_tree", Tree).focus()
-        else:
-            self.query_one("#accounts_table", DataTable).focus()
+    # ── Actions ──────────────────────────────────────────────────────────
 
     def action_toggle_view(self) -> None:
         self._tree_view = not self._tree_view
@@ -428,7 +614,6 @@ class AccountListScreen(Screen):
         self.app.push_screen(AccountFormModal(self.db_manager), on_account_saved)
 
     def _get_selected_account_id(self) -> int | None:
-        """Return the account_id of the selected row, in either view."""
         if self._tree_view:
             tree = self.query_one("#accounts_tree", Tree)
             node = tree.cursor_node

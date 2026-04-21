@@ -1,5 +1,16 @@
 /* Global styles for Ledger TUI */
 
+/* ── Palette roles — use these tokens consistently across screens.
+ *    $success       positive values (income, net worth, savings, gains)
+ *    $error         negative values (expenses, deficits, destructive actions)
+ *    $accent        section headings, active emphasis, primary CTAs, key hints
+ *    $warning       neutral attention (budget near limit, stale data)
+ *    $text-muted    secondary info (counts, hints, timestamps, helper text)
+ *    $primary       app chrome (nav bar, chrome borders)
+ *    $panel         card/panel backgrounds, modal backgrounds
+ * Do not introduce hex literals — extend the token set instead.
+ */
+
 Screen {
     background: $surface;
 }
@@ -28,7 +39,10 @@ Screen {
     background: $panel;
 }
 
-/* Screen subtitle (used for counts like "Accounts (12)") */
+/* Screen subtitle — quiet one-liner under the header.
+ * Use for: item counts, active-filter recap, date-range recap.
+ * Must be single-line; $text-muted; no bold unless conveying a state change.
+ */
 .screen-subtitle {
     padding: 0 2;
     color: $text-muted;
@@ -156,19 +170,14 @@ Container {
     height: 1fr;
 }
 
-/* Mode indicator bar */
-#mode-indicator {
-    height: 1;
-    padding: 0 2;
-    color: $text-muted;
-    text-style: italic;
-}
-
-/* 2x2 chart grid */
+/* 2x2 chart grid — top row gets more space since Income/Expenses
+ * typically carry more breakdown rows than Assets/Liabilities.
+ */
 #chart-grid {
     height: 1fr;
     grid-size: 2 2;
     grid-gutter: 1;
+    grid-rows: 2fr 1fr;
     padding: 0 1;
 }
 
@@ -180,7 +189,7 @@ Container {
     border: round $error 40%;
 }
 #q-asset {
-    border: round #5fafff 40%;
+    border: round $primary 40%;
 }
 #q-liability {
     border: round $warning 40%;
@@ -196,8 +205,8 @@ Container {
     background: $error 8%;
 }
 #q-asset:focus {
-    border: heavy #5fafff;
-    background: #5fafff 8%;
+    border: heavy $primary;
+    background: $primary 8%;
 }
 #q-liability:focus {
     border: heavy $warning;
@@ -247,49 +256,102 @@ PeriodBar {
     margin-bottom: 1;
 }
 
-/* Reports styles */
-#report-tabs {
+/* Reports — two-pane split: Income Statement (left) · Balance Sheet (right).
+ * Each pane is a Vertical(VerticalScroll, Container) so the NET-box slot
+ * always sits at the bottom regardless of content length — giving both
+ * panes visually anchored bottom lines. */
+#report-container {
     height: 1fr;
+    padding: 0 1;
+}
+
+#report-split {
+    height: 1fr;
+}
+
+.report-pane {
+    width: 1fr;
+    height: 1fr;
+    padding: 0 1;
+}
+
+#income-pane {
+    border-right: tall $panel;
+}
+
+.report-content {
+    height: 1fr;
+}
+
+.report-net-slot {
+    height: auto;
+    padding: 0;
 }
 
 .report-header {
     text-style: bold;
-    padding: 1;
-    background: transparent;
+    padding: 1 0 0 2;
     color: $accent;
-    border-bottom: solid $primary 40%;
+    height: auto;
+}
+
+.report-subtitle {
+    color: $text-muted;
+    padding: 0 0 1 2;
+    height: auto;
 }
 
 .report-section-title {
     text-style: bold;
-    padding: 1 0 0 0;
+    padding: 1 0 0 2;
     color: $accent;
+    height: auto;
 }
 
 .report-line {
     padding: 0 0 0 2;
+    height: auto;
 }
 
 .report-separator {
     color: $text-muted;
+    padding: 0 0 0 2;
+    height: 1;
 }
 
 .report-total {
     text-style: bold;
+    padding: 0 0 0 2;
+    height: auto;
 }
 
-.report-net-positive {
+.report-empty {
+    color: $text-muted;
+    text-style: italic;
+    padding: 0 0 0 2;
+    height: auto;
+}
+
+/* NET INCOME / NET WORTH emphasis box — bordered, tinted, bold.
+ * padding-left: 1 + heavy border 1 = 2, matching data-row padding-left: 2,
+ * so inner label/amount columns line up with rows above. */
+.report-net-box {
+    height: auto;
+    margin: 1 0 0 0;
+    padding: 0 1;
     text-style: bold;
+}
+
+.report-net-box-positive {
+    border: heavy $success;
+    background: $success 15%;
     color: $success;
 }
 
-.report-net-negative {
-    text-style: bold;
+.report-net-box-negative {
+    border: heavy $error;
+    background: $error 15%;
     color: $error;
-}
-
-#income-statement-content, #balance-sheet-content {
-    padding: 1;
 }
 
 /* Budget styles */
@@ -405,36 +467,56 @@ HelpSidebar VerticalScroll {
 /* Import review screen */
 .import-header-row {
     height: auto;
-    padding: 1;
+    padding: 0 1;
     align: left middle;
 }
 
-#import-file-field {
+.import-header-row #file_path_input {
     width: 2fr;
-    height: auto;
-    padding-right: 1;
+    margin: 0 1 0 0;
 }
 
-#import-source-field {
+.import-header-row #source_account_select {
     width: 1fr;
-    height: auto;
-    padding-right: 1;
+    margin: 0 1 0 0;
 }
 
 .import-header-row Button {
-    margin-top: 2;
+    margin: 0;
 }
 
 #import_info {
-    padding: 0 1;
-    color: $accent;
+    padding: 0 2;
+    color: $text-muted;
+    height: auto;
+    min-height: 0;
+}
+
+#import_error {
+    padding: 0 2;
+    color: $error;
+    height: auto;
+    min-height: 0;
+}
+
+.import-empty-state {
+    height: 1fr;
+    content-align: center middle;
+    color: $text-muted;
+    text-style: italic;
+}
+
+.status-new {
+    color: $warning;
     text-style: bold;
 }
 
-#import_summary {
-    padding: 1;
-    text-style: bold;
-    color: $accent;
+.status-dup {
+    color: $text-muted;
+}
+
+.status-ok {
+    color: $text-muted;
 }
 
 #import_review_table {
@@ -472,6 +554,45 @@ HelpSidebar VerticalScroll {
     padding: 1;
 }
 
+/* Transactions — split layout: main list on the left, inline detail on the right. */
+#transactions-split {
+    height: 1fr;
+}
+
+#transactions-main {
+    width: 1fr;
+    height: 1fr;
+}
+
+#transactions_table {
+    height: 1fr;
+}
+
+#transactions-detail-pane {
+    width: 60;
+    min-width: 40;
+    height: 1fr;
+    padding: 1 2;
+    border-left: tall $panel;
+}
+
+.tx-detail-header {
+    height: auto;
+    padding: 0 0 1 0;
+    border-bottom: tall $panel;
+}
+
+.tx-detail-postings {
+    height: auto;
+    padding: 1 0 0 0;
+}
+
+.tx-detail-notes {
+    height: auto;
+    padding: 1 0 0 0;
+    color: $text-muted;
+}
+
 /* Forecast profiles picker */
 #forecast-profiles-table {
     height: 1fr;
@@ -492,12 +613,23 @@ HelpSidebar VerticalScroll {
     padding: 3;
 }
 
-/* Forecast detail placeholder */
+/* Forecast detail — metadata header block: name (accent) + meta (muted). */
 .forecast-detail-header {
     height: auto;
     padding: 1 2;
     background: $panel;
     border-bottom: tall $primary 40%;
+}
+
+.forecast-detail-name {
+    height: 1;
+    text-style: bold;
+    color: $accent;
+}
+
+.forecast-detail-meta {
+    height: 1;
+    color: $text-muted;
 }
 
 /* Inline helper text (e.g. "→ June 2026" below start-month input) */
@@ -576,13 +708,6 @@ HelpSidebar VerticalScroll {
     height: 1fr;
 }
 
-.cashflow-summary {
-    dock: bottom;
-    width: 100%;
-    padding: 0 2;
-    color: $text-muted;
-}
-
 /* Investments pane — aggregate per-month table. */
 #investments-pane {
     width: 1fr;
@@ -655,18 +780,81 @@ HelpSidebar VerticalScroll {
     max-height: 90%;
 }
 
-/* Transaction summary */
-.transactions-summary {
+/* Unified bottom-dock status footer — left summary, right hints.
+ * Canonical footer for all screens. The legacy .transactions-summary and
+ * .forecast-summary rules remain for backwards compatibility (still used by
+ * a few forecast modals) but should be migrated away in per-page polish forks.
+ */
+StatusFooter {
     dock: bottom;
+    height: 1;
     width: 100%;
-    padding: 0 2;
-    color: $text-muted;
-    text-style: bold;
+    background: $surface;
 }
 
-/* Account tree view */
+StatusFooter .status-footer-summary {
+    width: 1fr;
+    content-align: left middle;
+    padding: 0 2;
+    color: $text-muted;
+}
+
+StatusFooter .status-footer-hints {
+    width: 1fr;
+    content-align: right middle;
+    padding: 0 2;
+    color: $text-muted;
+}
+
+/* Accounts screen — split-pane layout.
+ * Left: tree (or flat DataTable); right: T-ledger detail for focused row.
+ */
+#accounts-body {
+    height: 1fr;
+}
+
+#accounts-tree-pane {
+    width: 60;
+    min-width: 40;
+    height: 1fr;
+    border-right: tall $panel;
+}
+
 #accounts_tree {
     height: 1fr;
+}
+
+/* Dim tree guides to reduce left-gutter visual weight. */
+#accounts_tree > .tree--guides,
+#accounts_tree > .tree--guides-hover,
+#accounts_tree > .tree--guides-selected {
+    color: $text-muted;
+}
+
+#accounts_table {
+    height: 1fr;
+}
+
+#account-detail-pane {
+    width: 1fr;
+    height: 1fr;
+    padding: 0 1;
+}
+
+.account-detail-header {
+    height: auto;
+    padding: 0 1;
+    background: $panel;
+    border-bottom: tall $panel;
+}
+
+#account-detail-scroll {
+    height: 1fr;
+    padding: 1 1 0 1;
+}
+
+#account-detail-body {
+    height: auto;
 }
 
 /* Search input */
@@ -680,13 +868,3 @@ HelpSidebar VerticalScroll {
     border: tall $accent;
 }
 
-/* Report tab buttons */
-#report-tabs-buttons {
-    height: auto;
-    padding: 0 1;
-    align: left middle;
-}
-
-#report-tabs-buttons Button {
-    margin: 0 1 0 0;
-}

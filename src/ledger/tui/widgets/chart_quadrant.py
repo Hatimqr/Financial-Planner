@@ -169,7 +169,7 @@ class ChartQuadrant(Widget, can_focus=True):
 
         drillable_names = {n.name for n in (category_nodes or []) if n.has_children}
 
-        max_name_len = min(max((len(lbl) for lbl, _, _ in paired), default=8), 12)
+        max_name_len = min(max((len(lbl) for lbl, _, _ in paired), default=8), 16)
         max_val = max(values) if values else 1
         bar_width = 28
 
@@ -308,7 +308,7 @@ class ChartQuadrant(Widget, can_focus=True):
         sorted_nodes = sorted(nodes, key=lambda n: n.amount, reverse=True)
 
         # Calculate column widths
-        max_name_len = min(max((len(n.display_name) for n in sorted_nodes), default=8), 12)
+        max_name_len = min(max((len(n.display_name) for n in sorted_nodes), default=8), 16)
         amt_strings = [f"{n.amount:,.0f}" for n in sorted_nodes]
         amt_width = max((len(s) for s in amt_strings), default=6)
 

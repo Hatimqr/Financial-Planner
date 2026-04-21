@@ -16,7 +16,7 @@ from ledger.services.budget_service import BudgetService
 from ledger.services.report_service import CategoryNode, ReportService
 from ledger.tui.widgets.app_header import AppHeader
 from ledger.tui.widgets.chart_quadrant import ChartQuadrant
-
+from ledger.tui.widgets.status_footer import StatusFooter, format_hints
 
 MODES = ["breakdown", "comparison"]
 
@@ -68,23 +68,21 @@ class DashboardScreen(Screen):
         self._comparison_count: int = 3
         self._focused_quadrant: int = 0  # 0=income, 1=expense, 2=asset, 3=liability
         self._drill_overlay: Optional[OptionList] = None
+        self._last_summary = None
 
     def compose(self) -> ComposeResult:
         yield AppHeader("Dashboard")
         yield Container(
             Vertical(
-                # KPI Row — 6 KPIs
+                # KPI Row — 5 KPIs
                 Horizontal(
                     Container(id="kpi-net-worth", classes="kpi-container"),
                     Container(id="kpi-income", classes="kpi-container"),
                     Container(id="kpi-expenses", classes="kpi-container"),
                     Container(id="kpi-net", classes="kpi-container"),
                     Container(id="kpi-savings", classes="kpi-container"),
-                    Container(id="kpi-budget", classes="kpi-container"),
                     id="kpi-row",
                 ),
-                # Mode indicator
-                Static("", id="mode-indicator"),
                 # 2x2 Chart Grid
                 Grid(
                     ChartQuadrant("income", "Income", "q-income"),
@@ -96,11 +94,12 @@ class DashboardScreen(Screen):
                 id="dashboard-content",
             ),
         )
+        yield StatusFooter(id="dashboard-footer")
 
     def on_mount(self) -> None:
         """Load data and focus first quadrant."""
-        self._update_mode_indicator()
         self.load_data()
+        self._update_footer()
         # Focus the first quadrant
         try:
             self.query_one("#q-income", ChartQuadrant).focus()
@@ -134,19 +133,16 @@ class DashboardScreen(Screen):
         start: date,
         end: date,
     ) -> None:
-        """Load and display all 6 KPIs."""
-        # Net Worth
+        """Load and display the 5 dashboard KPIs."""
         net_worth = report_service.get_net_worth()
         self._set_kpi("kpi-net-worth", "Net Worth", self._fmt(net_worth.net_worth))
 
-        # Period summary
         summary = report_service.get_period_summary(start, end)
 
         self._set_kpi("kpi-income", "Income", self._fmt(summary.total_income), classes="kpi-widget kpi-income")
         self._set_kpi("kpi-expenses", "Expenses", self._fmt(summary.total_expenses), classes="kpi-widget kpi-expense")
         self._set_kpi("kpi-net", "Net", self._fmt(summary.net_income))
 
-        # Savings rate
         savings_class = "kpi-widget"
         if summary.savings_rate >= 20:
             savings_class += " kpi-good"
@@ -156,16 +152,7 @@ class DashboardScreen(Screen):
             savings_class += " kpi-bad"
         self._set_kpi("kpi-savings", "Savings %", f"{summary.savings_rate}%", classes=savings_class)
 
-        # Budget utilization
-        budget_pct = budget_service.get_overall_budget_utilization(start, end)
-        budget_class = "kpi-widget"
-        if budget_pct <= 80:
-            budget_class += " kpi-good"
-        elif budget_pct <= 100:
-            budget_class += " kpi-neutral"
-        else:
-            budget_class += " kpi-bad"
-        self._set_kpi("kpi-budget", "Budget %", f"{budget_pct}%", classes=budget_class)
+        self._last_summary = summary
 
     def _set_kpi(self, container_id: str, title: str, value: str, subtitle: str = "", classes: str = "kpi-widget") -> None:
         """Set a KPI widget inside its container."""
@@ -269,16 +256,35 @@ class DashboardScreen(Screen):
         values = [float(p.value) for p in points]
         quadrant.render_chart(labels, values, nodes)
 
-    def _update_mode_indicator(self) -> None:
-        """Update the mode indicator bar."""
-        mode = self._mode.title()
-        text = f"[bold]\\[M][/bold]ode: {mode}"
-        if self._mode == "comparison":
-            text += f"  |  [bold]\\[+/-][/bold] Periods: {self._comparison_count}"
+    def _update_footer(self) -> None:
+        """Refresh the StatusFooter summary and hint strip."""
         try:
-            self.query_one("#mode-indicator", Static).update(text)
+            footer = self.query_one("#dashboard-footer", StatusFooter)
         except Exception:
-            pass
+            return
+
+        # Summary: current mode + net/savings for quick glance.
+        mode_label = self._mode.title()
+        if self._last_summary is not None:
+            net = self._last_summary.net_income
+            sign = "+" if net >= 0 else "-"
+            summary = (
+                f"Mode: {mode_label} · "
+                f"Net {sign}AED {abs(net):,.2f} · "
+                f"Savings {self._last_summary.savings_rate}%"
+            )
+        else:
+            summary = f"Mode: {mode_label}"
+        if self._mode == "comparison":
+            summary += f" · Periods: {self._comparison_count}"
+        footer.set_summary(summary)
+
+        # Hints: keys are mode-sensitive.
+        pairs = [("M", "ode"), ("↵", " drill"), ("Esc", " up")]
+        if self._mode == "comparison":
+            pairs.append(("+/-", " periods"))
+        pairs.extend([("←↑↓→", " focus"), ("F5", " refresh")])
+        footer.set_hints(format_hints(pairs))
 
     # ── Quadrant focus navigation ──
 
@@ -340,7 +346,7 @@ class DashboardScreen(Screen):
         """Toggle between breakdown and comparison modes."""
         idx = MODES.index(self._mode)
         self._mode = MODES[(idx + 1) % len(MODES)]
-        self._update_mode_indicator()
+        self._update_footer()
         # Reset all drill paths and set mode on each quadrant
         for _, _, qid in QUADRANTS:
             try:
@@ -358,7 +364,7 @@ class DashboardScreen(Screen):
             return
         if self._comparison_count < 12:
             self._comparison_count += 1
-            self._update_mode_indicator()
+            self._update_footer()
             self._reload_all_quadrants()
             self.notify(f"Periods: {self._comparison_count}")
 
@@ -368,7 +374,7 @@ class DashboardScreen(Screen):
             return
         if self._comparison_count > 1:
             self._comparison_count -= 1
-            self._update_mode_indicator()
+            self._update_footer()
             self._reload_all_quadrants()
             self.notify(f"Periods: {self._comparison_count}")
 
@@ -491,6 +497,7 @@ class DashboardScreen(Screen):
     def refresh_data(self) -> None:
         """Refresh dashboard data (common screen interface)."""
         self.load_data()
+        self._update_footer()
 
     def action_refresh(self) -> None:
         self.refresh_data()
