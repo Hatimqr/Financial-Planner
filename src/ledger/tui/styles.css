@@ -466,8 +466,193 @@ HelpSidebar VerticalScroll {
 /* Screen content containers */
 #transactions-container,
 #accounts-container,
-#import-container {
+#import-container,
+#forecast-profiles-container,
+#forecast-detail-container {
     padding: 1;
+}
+
+/* Forecast profiles picker */
+#forecast-profiles-table {
+    height: 1fr;
+}
+
+.forecast-summary {
+    dock: bottom;
+    width: 100%;
+    padding: 0 2;
+    color: $text-muted;
+}
+
+.placeholder-notice {
+    align: center middle;
+    height: 1fr;
+    color: $text-muted;
+    text-align: center;
+    padding: 3;
+}
+
+/* Forecast detail placeholder */
+.forecast-detail-header {
+    height: auto;
+    padding: 1 2;
+    background: $panel;
+    border-bottom: tall $primary 40%;
+}
+
+/* Inline helper text (e.g. "→ June 2026" below start-month input) */
+.form-helper {
+    height: auto;
+    color: $text-muted;
+    text-style: italic;
+    padding: 0 0 1 0;
+}
+
+/* Forecast profile form — scrollable body, pinned button row. */
+.forecast-profile-form-modal {
+    height: auto;
+    max-height: 90%;
+}
+
+.forecast-profile-form-modal .form-scroll {
+    height: 1fr;
+    max-height: 22;
+    padding: 0 1;
+}
+
+/* Sub-heading inside a modal (e.g. "Profile window: 2026-06 → 2026-12"). */
+.modal-subhint {
+    text-align: center;
+    color: $text-muted;
+    text-style: italic;
+    padding: 0 0 1 0;
+    min-height: 1;
+}
+
+/* Forecast profile detail — split view. */
+#forecast-detail-body {
+    height: 1fr;
+}
+
+#lines-pane,
+#cashflow-pane {
+    width: 1fr;
+    height: 1fr;
+    padding: 0 1;
+}
+
+#lines-pane {
+    border-right: tall $panel;
+}
+
+.section-title {
+    text-style: bold;
+    color: $accent;
+    padding: 0 1;
+    height: 1;
+}
+
+#lines-table {
+    height: 1fr;
+}
+
+/* Forecast detail — top tables 50%, chart 50%. */
+#forecast-detail-body {
+    height: 1fr;
+}
+
+#forecast-chart-container {
+    height: 1fr;
+    padding: 0 1;
+    border-top: tall $panel;
+}
+
+#balance-chart {
+    height: 1fr;
+}
+
+/* Cashflow pane */
+#cashflow-table {
+    height: 1fr;
+}
+
+.cashflow-summary {
+    dock: bottom;
+    width: 100%;
+    padding: 0 2;
+    color: $text-muted;
+}
+
+/* Investments pane — aggregate per-month table. */
+#investments-pane {
+    width: 1fr;
+    padding: 0 1;
+}
+
+#investments-table {
+    height: 1fr;
+}
+
+/* Investments list modal + per-investment drill-down + CRUD form */
+.investments-list-modal {
+    width: 80;
+    height: auto;
+    max-height: 85%;
+}
+
+.investments-list-modal #investments-list-table {
+    height: auto;
+    max-height: 12;
+    margin: 1 0;
+}
+
+.investment-form-modal {
+    height: auto;
+    max-height: 90%;
+}
+
+.investment-month-modal {
+    width: 80;
+    height: auto;
+    max-height: 85%;
+}
+
+.investment-month-modal #investment-month-table {
+    height: auto;
+    max-height: 14;
+    margin: 1 0;
+}
+
+/* Month-contributions drill-down modal. */
+.month-contributions-modal {
+    width: 80;
+    height: auto;
+    max-height: 85%;
+}
+
+.month-contributions-modal #contributions-table {
+    height: auto;
+    max-height: 14;
+    margin: 1 0;
+}
+
+/* Overrides list modal. */
+.overrides-list-modal {
+    width: 80;
+    height: auto;
+    max-height: 85%;
+}
+
+.overrides-list-modal #overrides-table {
+    height: auto;
+    max-height: 12;
+    margin: 1 0;
+}
+
+/* Override form (smaller than line/profile — fits without scroll). */
+.override-form-modal {
+    height: auto;
+    max-height: 90%;
 }
 
 /* Transaction summary */

@@ -13,6 +13,7 @@ class LedgerCommands(Provider):
         ("Go to Transactions", "show_transactions", "View and manage transactions"),
         ("Go to Reports", "show_reports", "View financial reports"),
         ("Go to Budgets", "show_budgets", "View and manage budgets"),
+        ("Go to Forecasts", "show_forecasts", "View and manage forecast profiles"),
         ("New Transaction", "new_transaction", "Create a new transaction"),
         ("New Account", "new_account", "Create a new account"),
         ("New Budget", "new_budget", "Create a new budget"),
@@ -64,6 +65,8 @@ class LedgerCommands(Provider):
             app.action_show_reports()
         elif command == "show_budgets":
             app.action_show_budgets()
+        elif command == "show_forecasts":
+            app.action_show_forecasts()
         elif command == "new_transaction":
             app.action_new_transaction()
         elif command == "new_account":

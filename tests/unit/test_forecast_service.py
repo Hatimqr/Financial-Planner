@@ -383,6 +383,108 @@ class TestOverrideCRUD:
         assert service.override_repo.get_by_id(ovr.id) is None
         assert service.line_repo.get_by_id(line.id) is not None
 
+    def test_add_with_effect_span_until_next(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        line = service.add_line(
+            profile.id, "X", "outflow", Decimal("100"), 0, 6
+        )
+        ovr = service.add_override(
+            line.id, 2, Decimal("150"), effect_span="until_next"
+        )
+        assert ovr.effect_span == "until_next"
+
+    def test_add_default_effect_span_is_single_month(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        line = service.add_line(
+            profile.id, "X", "outflow", Decimal("100"), 0, 6
+        )
+        ovr = service.add_override(line.id, 2, Decimal("150"))
+        assert ovr.effect_span == "single_month"
+
+    def test_add_rejects_invalid_effect_span(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        line = service.add_line(
+            profile.id, "X", "outflow", Decimal("100"), 0, 6
+        )
+        with pytest.raises(ValueError, match="Invalid effect_span"):
+            service.add_override(
+                line.id, 2, Decimal("150"), effect_span="forever"
+            )
+
+    def test_update_effect_span(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        line = service.add_line(
+            profile.id, "X", "outflow", Decimal("100"), 0, 6
+        )
+        ovr = service.add_override(line.id, 2, Decimal("150"))
+        service.update_override(ovr.id, effect_span="until_next")
+        assert ovr.effect_span == "until_next"
+
+
+# ---------------------------------------------------------------------------
+# list_lines / list_overrides
+# ---------------------------------------------------------------------------
+
+
+class TestListMethods:
+    def test_list_lines_returns_in_sort_order(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        a = service.add_line(
+            profile.id, "A", "inflow", Decimal("1"), 0, 0, sort_order=2
+        )
+        b = service.add_line(
+            profile.id, "B", "outflow", Decimal("1"), 0, 0, sort_order=0
+        )
+        c = service.add_line(
+            profile.id, "C", "outflow", Decimal("1"), 0, 0, sort_order=1
+        )
+
+        got = service.list_lines(profile.id)
+
+        assert [l.id for l in got] == [b.id, c.id, a.id]
+
+    def test_list_lines_empty_profile(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        assert service.list_lines(profile.id) == []
+
+    def test_list_lines_unknown_profile_raises(self, session):
+        service = ForecastService(session)
+        with pytest.raises(ValueError, match="Forecast profile 999 not found"):
+            service.list_lines(999)
+
+    def test_list_overrides_returns_by_month(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        line = service.add_line(
+            profile.id, "Salary", "inflow", Decimal("10000"), 0, 6
+        )
+        service.add_override(line.id, 4, Decimal("12000"))
+        service.add_override(line.id, 1, Decimal("9000"))
+        service.add_override(line.id, 6, Decimal("11000"))
+
+        got = service.list_overrides(line.id)
+
+        assert [o.month_offset for o in got] == [1, 4, 6]
+
+    def test_list_overrides_empty_line(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        line = service.add_line(
+            profile.id, "Rent", "outflow", Decimal("4000"), 0, 6
+        )
+        assert service.list_overrides(line.id) == []
+
+    def test_list_overrides_unknown_line_raises(self, session):
+        service = ForecastService(session)
+        with pytest.raises(ValueError, match="Forecast line 999 not found"):
+            service.list_overrides(999)
+
 
 # ---------------------------------------------------------------------------
 # get_projection
@@ -436,7 +538,7 @@ class TestExport:
 
         payload = service.export_profile_to_dict(profile.id)
 
-        assert set(payload.keys()) == {"profile", "lines", "projection"}
+        assert set(payload.keys()) == {"profile", "lines", "investments", "projection"}
         assert payload["profile"]["name"] == "NYUAD RA"
         assert payload["profile"]["currency"] == "AED"
         assert payload["profile"]["start_date"] == "2026-06-01"
@@ -502,3 +604,471 @@ class TestExport:
         service = ForecastService(session)
         with pytest.raises(ValueError, match="profile 999 not found"):
             service.export_profile_to_dict(999)
+
+
+# ---------------------------------------------------------------------------
+# Investments (Iter 8)
+# ---------------------------------------------------------------------------
+
+
+class TestInvestmentCRUD:
+    def test_add_investment_happy_path(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        inv = service.add_investment(
+            profile.id,
+            label="S&P 500",
+            starting_balance=Decimal("10000"),
+            monthly_contribution=Decimal("500"),
+            annual_growth_rate=Decimal("7"),
+        )
+        assert inv.id is not None
+        assert inv.label == "S&P 500"
+        assert inv.starting_balance == Decimal("10000")
+        assert inv.monthly_contribution == Decimal("500")
+        assert inv.annual_growth_rate == Decimal("7")
+
+    def test_add_investment_validation(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+
+        with pytest.raises(ValueError, match="label cannot be empty"):
+            service.add_investment(
+                profile.id, "", Decimal("100"), Decimal("10"), Decimal("7")
+            )
+
+        with pytest.raises(ValueError, match="starting_balance must be >= 0"):
+            service.add_investment(
+                profile.id, "X", Decimal("-1"), Decimal("10"), Decimal("7")
+            )
+
+        with pytest.raises(ValueError, match="monthly_contribution must be >= 0"):
+            service.add_investment(
+                profile.id, "X", Decimal("100"), Decimal("-1"), Decimal("7")
+            )
+
+        with pytest.raises(ValueError, match="annual_growth_rate must be between"):
+            service.add_investment(
+                profile.id, "X", Decimal("100"), Decimal("10"), Decimal("2000")
+            )
+
+        with pytest.raises(ValueError, match="annual_growth_rate must be between"):
+            service.add_investment(
+                profile.id, "X", Decimal("100"), Decimal("10"), Decimal("-150")
+            )
+
+    def test_list_investments_sort_and_unknown_profile(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        a = service.add_investment(
+            profile.id, "A", Decimal("1"), Decimal("0"), Decimal("0"), sort_order=2
+        )
+        b = service.add_investment(
+            profile.id, "B", Decimal("1"), Decimal("0"), Decimal("0"), sort_order=0
+        )
+        c = service.add_investment(
+            profile.id, "C", Decimal("1"), Decimal("0"), Decimal("0"), sort_order=1
+        )
+
+        got = service.list_investments(profile.id)
+        assert [i.id for i in got] == [b.id, c.id, a.id]
+
+        with pytest.raises(ValueError, match="profile 999 not found"):
+            service.list_investments(999)
+
+    def test_update_investment(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        inv = service.add_investment(
+            profile.id, "Old", Decimal("1000"), Decimal("100"), Decimal("5")
+        )
+        updated = service.update_investment(
+            inv.id,
+            label="New",
+            starting_balance=Decimal("2000"),
+            monthly_contribution=Decimal("200"),
+            annual_growth_rate=Decimal("8.5"),
+        )
+        assert updated.label == "New"
+        assert updated.starting_balance == Decimal("2000")
+        assert updated.monthly_contribution == Decimal("200")
+        assert updated.annual_growth_rate == Decimal("8.5")
+
+    def test_delete_investment_and_profile_cascade(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        inv = service.add_investment(
+            profile.id, "X", Decimal("100"), Decimal("10"), Decimal("7")
+        )
+        inv_id = inv.id
+        service.delete_investment(inv_id)
+        assert service.investment_repo.get_by_id(inv_id) is None
+
+        # Cascade on profile delete
+        inv2 = service.add_investment(
+            profile.id, "Y", Decimal("200"), Decimal("20"), Decimal("5")
+        )
+        inv2_id = inv2.id
+        service.delete_profile(profile.id)
+        assert service.investment_repo.get_by_id(inv2_id) is None
+
+    def test_duplicate_profile_copies_investments(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        service.add_investment(
+            profile.id, "IRA", Decimal("10000"), Decimal("500"), Decimal("7")
+        )
+        service.add_investment(
+            profile.id, "Bonds", Decimal("5000"), Decimal("100"), Decimal("3")
+        )
+
+        dup = service.duplicate_profile(profile.id, "NYUAD (copy)")
+        assert dup.id != profile.id
+
+        dup_invs = service.list_investments(dup.id)
+        assert len(dup_invs) == 2
+        assert {i.label for i in dup_invs} == {"IRA", "Bonds"}
+        # New ids — independent copies
+        source_ids = {i.id for i in service.list_investments(profile.id)}
+        dup_ids = {i.id for i in dup_invs}
+        assert source_ids.isdisjoint(dup_ids)
+
+
+class TestInvestmentOverrideCRUD:
+    def test_add_valid(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        inv = service.add_investment(
+            profile.id, "IRA", Decimal("0"), Decimal("500"), Decimal("7")
+        )
+        ovr = service.add_investment_override(
+            inv.id, month_offset=2, amount=Decimal("1000")
+        )
+        assert ovr.id is not None
+        assert ovr.investment_id == inv.id
+        assert ovr.month_offset == 2
+        assert ovr.amount == Decimal("1000")
+        assert ovr.effect_span == "single_month"
+
+    def test_add_rejects_unknown_investment(self, session):
+        service = ForecastService(session)
+        with pytest.raises(ValueError, match="not found"):
+            service.add_investment_override(9999, 0, Decimal("0"))
+
+    def test_add_rejects_month_beyond_horizon(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service, horizon_months=6)
+        inv = service.add_investment(
+            profile.id, "IRA", Decimal("0"), Decimal("500"), Decimal("7")
+        )
+        with pytest.raises(ValueError, match="horizon_months"):
+            service.add_investment_override(
+                inv.id, month_offset=6, amount=Decimal("0")
+            )
+
+    def test_add_rejects_negative_month(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        inv = service.add_investment(
+            profile.id, "IRA", Decimal("0"), Decimal("500"), Decimal("7")
+        )
+        with pytest.raises(ValueError, match=">= 0"):
+            service.add_investment_override(
+                inv.id, month_offset=-1, amount=Decimal("0")
+            )
+
+    def test_add_duplicate_raises_valueerror(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        inv = service.add_investment(
+            profile.id, "IRA", Decimal("0"), Decimal("500"), Decimal("7")
+        )
+        service.add_investment_override(inv.id, 2, Decimal("1000"))
+        with pytest.raises(ValueError, match="already exists"):
+            service.add_investment_override(inv.id, 2, Decimal("0"))
+
+    def test_add_with_effect_span_until_next(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        inv = service.add_investment(
+            profile.id, "IRA", Decimal("0"), Decimal("500"), Decimal("7")
+        )
+        ovr = service.add_investment_override(
+            inv.id, 1, Decimal("1000"), effect_span="until_next"
+        )
+        assert ovr.effect_span == "until_next"
+
+    def test_add_rejects_invalid_effect_span(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        inv = service.add_investment(
+            profile.id, "IRA", Decimal("0"), Decimal("500"), Decimal("7")
+        )
+        with pytest.raises(ValueError, match="effect_span"):
+            service.add_investment_override(
+                inv.id, 1, Decimal("0"), effect_span="forever"
+            )
+
+    def test_update_amount_and_month(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        inv = service.add_investment(
+            profile.id, "IRA", Decimal("0"), Decimal("500"), Decimal("7")
+        )
+        ovr = service.add_investment_override(inv.id, 2, Decimal("1000"))
+        updated = service.update_investment_override(
+            ovr.id, month_offset=3, amount=Decimal("750")
+        )
+        assert updated.month_offset == 3
+        assert updated.amount == Decimal("750")
+
+    def test_update_month_clash_raises(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        inv = service.add_investment(
+            profile.id, "IRA", Decimal("0"), Decimal("500"), Decimal("7")
+        )
+        service.add_investment_override(inv.id, 2, Decimal("1000"))
+        ovr_b = service.add_investment_override(inv.id, 3, Decimal("500"))
+        with pytest.raises(ValueError, match="already exists"):
+            service.update_investment_override(ovr_b.id, month_offset=2)
+
+    def test_delete(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        inv = service.add_investment(
+            profile.id, "IRA", Decimal("0"), Decimal("500"), Decimal("7")
+        )
+        ovr = service.add_investment_override(inv.id, 2, Decimal("1000"))
+        service.delete_investment_override(ovr.id)
+        assert service.investment_override_repo.get_by_id(ovr.id) is None
+
+    def test_delete_investment_cascades_overrides(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        inv = service.add_investment(
+            profile.id, "IRA", Decimal("0"), Decimal("500"), Decimal("7")
+        )
+        ovr = service.add_investment_override(inv.id, 2, Decimal("1000"))
+        ovr_id = ovr.id
+        service.delete_investment(inv.id)
+        assert service.investment_override_repo.get_by_id(ovr_id) is None
+
+    def test_horizon_shrink_drops_overrides_beyond_new_horizon(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service, horizon_months=12)
+        inv = service.add_investment(
+            profile.id, "IRA", Decimal("0"), Decimal("500"), Decimal("7")
+        )
+        service.add_investment_override(inv.id, 2, Decimal("1000"))
+        service.add_investment_override(inv.id, 8, Decimal("0"))  # beyond new horizon
+        service.add_investment_override(inv.id, 11, Decimal("0"))  # beyond new horizon
+
+        result = service.update_profile(profile.id, horizon_months=6)
+        assert result.investment_overrides_deleted == 2
+
+        remaining = service.list_investment_overrides(inv.id)
+        assert [o.month_offset for o in remaining] == [2]
+
+    def test_projection_reflects_override(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(
+            service, horizon_months=6, opening_balance=Decimal("10000")
+        )
+        inv = service.add_investment(
+            profile.id, "IRA", Decimal("0"), Decimal("500"), Decimal("0")
+        )
+        service.add_investment_override(inv.id, 2, Decimal("0"))
+
+        proj = service.get_projection(profile.id)
+        # Month 2 contribution was dropped to 0.
+        assert proj.months[2].investments[inv.id].contribution == Decimal("0")
+        assert proj.months[2].investments[inv.id].is_overridden is True
+        # Other months retain the 500 base.
+        assert proj.months[0].investments[inv.id].contribution == Decimal("500")
+        # Summary total reflects the skipped month: 5 * 500.
+        summary = next(
+            s for s in proj.investment_summaries if s.investment_id == inv.id
+        )
+        assert summary.total_contributed == Decimal("2500")
+        assert summary.override_count == 1
+
+    def test_duplicate_profile_copies_investment_overrides(self, session):
+        service = ForecastService(session)
+        profile = _make_profile(service)
+        inv = service.add_investment(
+            profile.id, "IRA", Decimal("10000"), Decimal("500"), Decimal("7")
+        )
+        service.add_investment_override(inv.id, 1, Decimal("1000"))
+        service.add_investment_override(
+            inv.id, 3, Decimal("250"), effect_span="until_next"
+        )
+
+        dup = service.duplicate_profile(profile.id, "Copy")
+        dup_invs = service.list_investments(dup.id)
+        assert len(dup_invs) == 1
+        dup_inv = dup_invs[0]
+        # Copies point at the new investment, not the source's.
+        assert dup_inv.id != inv.id
+
+        dup_ovrs = service.list_investment_overrides(dup_inv.id)
+        assert len(dup_ovrs) == 2
+        by_month = {o.month_offset: o for o in dup_ovrs}
+        assert by_month[1].amount == Decimal("1000")
+        assert by_month[1].effect_span == "single_month"
+        assert by_month[3].amount == Decimal("250")
+        assert by_month[3].effect_span == "until_next"
+        # Source overrides untouched
+        src_ovrs = service.list_investment_overrides(inv.id)
+        assert {o.id for o in src_ovrs}.isdisjoint({o.id for o in dup_ovrs})
+
+
+class TestTaxProfileCRUD:
+    def test_create_defaults(self, session):
+        service = ForecastService(session)
+        tp = service.add_tax_profile(name="Scotland full")
+        assert tp.id is not None
+        assert tp.name == "Scotland full"
+        assert tp.jurisdiction == "scotland"
+        assert tp.apply_income_tax is True
+        assert tp.apply_ni is True
+
+    def test_create_rejects_blank_name(self, session):
+        service = ForecastService(session)
+        with pytest.raises(ValueError, match="name cannot be empty"):
+            service.add_tax_profile(name="   ")
+
+    def test_create_rejects_duplicate_name(self, session):
+        service = ForecastService(session)
+        service.add_tax_profile(name="Scotland full")
+        with pytest.raises(ValueError, match="already exists"):
+            service.add_tax_profile(name="Scotland full")
+
+    def test_create_rejects_invalid_jurisdiction(self, session):
+        service = ForecastService(session)
+        with pytest.raises(ValueError, match="Invalid jurisdiction"):
+            service.add_tax_profile(name="Test", jurisdiction="wales")
+
+    def test_list_sorted_by_name(self, session):
+        service = ForecastService(session)
+        service.add_tax_profile(name="Zulu")
+        service.add_tax_profile(name="Alpha")
+        service.add_tax_profile(name="Mike")
+        names = [tp.name for tp in service.list_tax_profiles()]
+        assert names == ["Alpha", "Mike", "Zulu"]
+
+    def test_update_fields(self, session):
+        service = ForecastService(session)
+        tp = service.add_tax_profile(name="Scotland full")
+        updated = service.update_tax_profile(
+            tp.id, apply_ni=False, jurisdiction="ruk"
+        )
+        assert updated.apply_ni is False
+        assert updated.jurisdiction == "ruk"
+
+    def test_update_rename_uniqueness(self, session):
+        service = ForecastService(session)
+        a = service.add_tax_profile(name="A")
+        service.add_tax_profile(name="B")
+        with pytest.raises(ValueError, match="already exists"):
+            service.update_tax_profile(a.id, name="B")
+
+    def test_delete_empty_profile_ok(self, session):
+        service = ForecastService(session)
+        tp = service.add_tax_profile(name="Scotland full")
+        service.delete_tax_profile(tp.id)
+        assert service.get_tax_profile(tp.id) is None
+
+    def test_delete_while_attached_blocked(self, session):
+        service = ForecastService(session)
+        tp = service.add_tax_profile(name="Scotland full")
+        profile = _make_profile(service)
+        service.add_line(
+            profile.id,
+            "Salary",
+            "inflow",
+            Decimal("5000"),
+            0,
+            6,
+            tax_profile_id=tp.id,
+        )
+        with pytest.raises(ValueError, match="attached to 1 line"):
+            service.delete_tax_profile(tp.id)
+
+    def test_delete_after_detach_ok(self, session):
+        service = ForecastService(session)
+        tp = service.add_tax_profile(name="Scotland full")
+        profile = _make_profile(service)
+        line = service.add_line(
+            profile.id,
+            "Salary",
+            "inflow",
+            Decimal("5000"),
+            0,
+            6,
+            tax_profile_id=tp.id,
+        )
+        service.attach_tax_profile(line.id, None)
+        service.delete_tax_profile(tp.id)
+        assert service.get_tax_profile(tp.id) is None
+
+    def test_attach_to_outflow_line_rejected(self, session):
+        service = ForecastService(session)
+        tp = service.add_tax_profile(name="Scotland full")
+        profile = _make_profile(service)
+        rent = service.add_line(
+            profile.id, "Rent", "outflow", Decimal("1000"), 0, 6
+        )
+        with pytest.raises(ValueError, match="inflow lines"):
+            service.attach_tax_profile(rent.id, tp.id)
+
+    def test_add_line_with_tax_on_outflow_rejected(self, session):
+        service = ForecastService(session)
+        tp = service.add_tax_profile(name="Scotland full")
+        profile = _make_profile(service)
+        with pytest.raises(ValueError, match="inflow lines"):
+            service.add_line(
+                profile.id,
+                "Rent",
+                "outflow",
+                Decimal("1000"),
+                0,
+                6,
+                tax_profile_id=tp.id,
+            )
+
+    def test_update_line_attach_then_switch_kind_rejected(self, session):
+        service = ForecastService(session)
+        tp = service.add_tax_profile(name="Scotland full")
+        profile = _make_profile(service)
+        line = service.add_line(
+            profile.id,
+            "Salary",
+            "inflow",
+            Decimal("5000"),
+            0,
+            6,
+            tax_profile_id=tp.id,
+        )
+        with pytest.raises(ValueError, match="Detach"):
+            service.update_line(line.id, kind="outflow")
+
+    def test_update_line_switch_kind_with_detach_ok(self, session):
+        service = ForecastService(session)
+        tp = service.add_tax_profile(name="Scotland full")
+        profile = _make_profile(service)
+        line = service.add_line(
+            profile.id,
+            "Salary",
+            "inflow",
+            Decimal("5000"),
+            0,
+            6,
+            tax_profile_id=tp.id,
+        )
+        # Must detach in the same update.
+        result = service.update_line(
+            line.id, kind="outflow", tax_profile_id=None
+        )
+        assert result.line.kind == "outflow"
+        assert result.line.tax_profile_id is None

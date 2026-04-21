@@ -435,7 +435,8 @@ Each iteration produces a reviewable artefact. The user reviews, we refine, then
 
 - Opening a profile shows its metadata header (editable) and its lines table (editable in place).
 - Add/edit/delete/reorder lines. Placeholder for cashflow view.
-- Each line row exposes an "overrides" affordance (e.g. keybinding `o` on a selected line) that opens a small modal/sub-table listing the line's existing overrides and allowing add/edit/delete by month. An override defaults its amount to the line's base amount on create (FR-O6).
+- Each line row exposes an "overrides" affordance (e.g. keybinding `o` on a selected line) that opens a small modal/sub-table qlisting the line's existi
+ng overrides and allowing add/edit/delete by month. An override defaults its amount to the line's base amount on create (FR-O6).
 - **Review point:** lines editor ergonomics and overrides affordance.
 
 ### Iteration 6 — TUI: cashflow view + live recompute

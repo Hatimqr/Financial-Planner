@@ -16,20 +16,33 @@ SCREENS = [
     ("t", "Transactions"),
     ("r", "Reports"),
     ("b", "Budgets"),
+    ("f", "Forecasts"),
     ("i", "Import"),
 ]
 
 
 class AppHeader(Widget):
-    """Two-row header: Row 1 = app name + nav tabs, Row 2 = period selector."""
+    """Two-row header: Row 1 = app name + nav tabs, Row 2 = period selector.
 
-    def __init__(self, active_screen: str = "Dashboard", **kwargs) -> None:
+    Pass ``show_period_bar=False`` for screens whose data is not period-driven
+    (e.g. forecasts, which are horizon-driven) to reclaim the 3 rows the
+    period bar would otherwise occupy.
+    """
+
+    def __init__(
+        self,
+        active_screen: str = "Dashboard",
+        show_period_bar: bool = True,
+        **kwargs,
+    ) -> None:
         super().__init__(id="app-header", **kwargs)
         self._active_screen = active_screen
+        self._show_period_bar = show_period_bar
 
     def compose(self) -> ComposeResult:
         yield Static(id="header-nav-row")
-        yield PeriodBar()
+        if self._show_period_bar:
+            yield PeriodBar()
 
     def on_mount(self) -> None:
         self._render_nav()

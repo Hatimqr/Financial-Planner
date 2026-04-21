@@ -9,7 +9,18 @@
       "Bash(ruff check:*)",
       "Bash(tail:*)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(conda run:*)"
+      "Bash(conda run:*)",
+      "Bash(python3 -c \"from ledger.tui.screens.forecast_profiles import ForecastProfilesScreen; from ledger.tui.screens.forecast_profile_detail import ForecastProfileDetailScreen; from ledger.tui.widgets.forecast_profile_form import ForecastProfileFormModal, ProfileFormResult; from ledger.tui.widgets.forecast_profile_duplicate import DuplicateProfileModal; print\\('imports OK'\\)\")",
+      "Read(//opt/homebrew/Caskroom/miniconda/base/**)",
+      "Read(//Users/hatim/**)",
+      "Bash(conda env *)",
+      "Read(//opt/homebrew/anaconda3/**)",
+      "Read(//opt/anaconda3/envs/**)",
+      "Bash(find / -maxdepth 5 -name \"fin_man\" -type d)",
+      "Bash(/opt/anaconda3/envs/fin_man/bin/python -c \"from ledger.tui.screens.forecast_profiles import ForecastProfilesScreen; from ledger.tui.screens.forecast_profile_detail import ForecastProfileDetailScreen; from ledger.tui.widgets.forecast_profile_form import ForecastProfileFormModal, ProfileFormResult; from ledger.tui.widgets.forecast_profile_duplicate import DuplicateProfileModal; print\\('imports OK'\\)\")",
+      "Bash(/opt/anaconda3/envs/fin_man/bin/python -c ' *)",
+      "Bash(/opt/anaconda3/envs/fin_man/bin/python -m pytest tests/ -q)",
+      "WebFetch(domain:cryptobriefing.com)"
     ]
   },
   "enabledPlugins": {

@@ -59,7 +59,7 @@ _KEY_DISPLAY = {
 
 _NAV_ACTIONS = frozenset({
     "show_dashboard", "show_accounts", "show_transactions",
-    "show_reports", "show_budgets", "show_import",
+    "show_reports", "show_budgets", "show_forecasts", "show_import",
 })
 
 _PERIOD_ACTIONS_PREFIX = "period_"

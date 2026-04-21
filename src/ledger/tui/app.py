@@ -36,6 +36,7 @@ class LedgerApp(App):
         Binding("t", "show_transactions", "Transactions"),
         Binding("r", "show_reports", "Reports"),
         Binding("b", "show_budgets", "Budgets"),
+        Binding("f", "show_forecasts", "Forecasts"),
 
         # Global actions
         Binding("ctrl+slash", "search", "Search"),
@@ -62,8 +63,8 @@ class LedgerApp(App):
         super().__init__()
         self.db_manager = db_manager
 
-        # Help sidebar visible by default; user can toggle with ?
-        self._help_visible: bool = True
+        # Help sidebar hidden by default; ? toggles it
+        self._help_visible: bool = False
 
         # Global period state — shared across all screens
         # Initialize with fallback; on_mount loads the user's saved default
@@ -177,6 +178,10 @@ class LedgerApp(App):
     def action_show_budgets(self) -> None:
         from ledger.tui.screens.budgets import BudgetsScreen
         self._switch_main_screen(BudgetsScreen(self.db_manager))
+
+    def action_show_forecasts(self) -> None:
+        from ledger.tui.screens.forecast_profiles import ForecastProfilesScreen
+        self._switch_main_screen(ForecastProfilesScreen(self.db_manager))
 
     def action_new_transaction(self) -> None:
         from ledger.tui.widgets.transaction_form import TransactionFormModal
